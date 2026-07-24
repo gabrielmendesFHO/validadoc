@@ -41,7 +41,6 @@ def init_automap():
             engine,
             reflect=True,
             classname_for_table=_classname_for_table,
-            extend_existing=True,
         )
     except InvalidRequestError as exc:
         if "already defined" not in str(exc):

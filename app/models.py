@@ -76,19 +76,6 @@ class Usuarios(Base):
     inscricoes = relationship("Inscricoes", back_populates="candidato")
 
 
-class ProcessosSolicitados(Base):
-    __tablename__ = "documentos_solicitados"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
-    nome_documento = Column(String(100), nullable=False)
-    obrigatorio = Column(Integer, nullable=False, server_default=text("0"))
-    criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
-
-    processo = relationship("ProcessosBolsa", back_populates="documentos_solicitados")
-    documentos_enviados = relationship("DocumentosEnviados", back_populates="solicitado")
-
-
 class Inscricoes(Base):
     __tablename__ = "inscricoes"
 
@@ -130,10 +117,9 @@ class DocumentosEnviados(Base):
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     inscricao = relationship("Inscricoes", back_populates="documentos_enviados")
-    solicitado = relationship("ProcessosSolicitados", back_populates="documentos_enviados")
+    solicitado = relationship("DocumentosSolicitados", back_populates="documentos_enviados") 
     membro = relationship("MembrosFamilia")
     analises_ocr = relationship("AnalisesOcr", back_populates="documento")
-
 
 class AnalisesOcr(Base):
     __tablename__ = "analises_ocr"
