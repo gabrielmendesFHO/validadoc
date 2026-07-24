@@ -9,6 +9,7 @@ from datetime import datetime
 # Importe seus modelos e sessão do db.py e models.py
 from app.db import get_db
 from app.models import DocumentosEnviados
+from ..services.image_processing import processar_imagem_para_ocr
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
@@ -40,6 +41,10 @@ async def upload_documento(
     # 4. (Opcional - Espaço para o Pré-processamento com OpenCV)
     # Aqui vai entrar a sua lógica de binarização e alinhamento antes do OCR
     # ex: processar_imagem(file_path)
+    processamento_ok = processar_imagem_para_ocr(file_path)
+
+    # Define um status baseado no sucesso do pré-processamento
+    status_atual = "PROCESSAMENTO_OK" if processamento_ok else "ERRO_PROCESSAMENTO"
 
     # 5. Salvar o registro no Banco de Dados
     try:
@@ -48,7 +53,7 @@ async def upload_documento(
             solicitado_id=solicitado_id,
             membro_id=membro_id,
             caminho_arquivo=file_path,
-            status_processamento="PENDENTE"
+            status_processamento=status_atual
         )
         
         db.add(novo_documento)
