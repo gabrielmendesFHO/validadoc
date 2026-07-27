@@ -3,7 +3,7 @@ uvicorn[standard]
 sqlalchemy
 pymysql
 python-dotenv
-google-generativeai
+google-genai
 opencv-python-headless
 pillow
 python-jose[cryptography]

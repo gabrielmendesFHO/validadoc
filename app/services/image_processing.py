@@ -1,64 +1,117 @@
-import cv2
-import numpy as np
+"""Pré-processamento de imagem.
+
+Duas funções, dois propósitos diferentes — não são intercambiáveis:
+
+- preparar_para_ia_multimodal: correção geométrica leve (deskew) + realce de
+  contraste, mantendo COR. É o que vai pro Gemini. Modelos multimodais leem
+  layout, sombras, carimbos e marcas d'água — informação que se perde se a
+  imagem virar preto-e-branco puro.
+
+- binarizar_para_ocr_tradicional: pipeline agressivo (grayscale + threshold
+  adaptativo). Só serve pra alimentar OCR tradicional (Tesseract), como no
+  comparativo da seção 4.4 do TCC. NÃO é usada no pipeline principal.
+
+Nenhuma das duas sobrescreve o arquivo original — cada uma grava uma cópia
+nova ao lado do arquivo de entrada (sufixo _prep ou _bin).
+"""
+from typing import Optional
 import os
 
-def processar_imagem_para_ocr(caminho_arquivo: str) -> bool:
-    """
-    Aplica técnicas suaves de pré-processamento para melhorar a leitura de OCR.
-    Retorna True se o processamento for bem-sucedido.
-    """
-    if not os.path.exists(caminho_arquivo):
-        return False
+import cv2
+import numpy as np
 
-    # 1. Ler a imagem original
+EXTENSOES_IMAGEM = {".jpg", ".jpeg", ".png", ".bmp", ".tiff"}
+
+
+def _extensao(caminho: str) -> str:
+    return os.path.splitext(caminho)[1].lower()
+
+
+def _calcular_angulo_deskew(gray: np.ndarray) -> float:
+    """Estima o ângulo de rotação do texto a partir de uma máscara binarizada.
+    Usada só pra calcular o ângulo — não altera a imagem de origem."""
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    coords = np.column_stack(np.where(mask > 0))
+    if len(coords) == 0:
+        return 0.0
+
+    angle = cv2.minAreaRect(coords)[-1]
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+    return angle
+
+
+def _rotacionar(img: np.ndarray, angle: float) -> np.ndarray:
+    (h, w) = img.shape[:2]
+    centro = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(centro, angle, 1.0)
+    return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+def preparar_para_ia_multimodal(caminho_arquivo: str) -> str:
+    """Correção leve e não-destrutiva (deskew + contraste), mantendo cor.
+
+    Retorna o caminho do arquivo que deve ser enviado ao Gemini. Se o arquivo
+    não for uma imagem suportada pelo OpenCV (ex.: PDF), devolve o próprio
+    caminho original sem tocar nele — o Gemini lê PDF nativamente.
+    """
+    if _extensao(caminho_arquivo) not in EXTENSOES_IMAGEM:
+        return caminho_arquivo
+
     img = cv2.imread(caminho_arquivo)
     if img is None:
-        return False
+        return caminho_arquivo
 
-    # 2. Conversão para Escala de Cinza
-    # Remove as cores, focando apenas no contraste entre fundo e texto
+    gray_para_angulo = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    angle = _calcular_angulo_deskew(gray_para_angulo)
+    if abs(angle) > 0.5:
+        img = _rotacionar(img, angle)
+
+    # Realce de contraste em cor: CLAHE no canal de luminância (espaço LAB),
+    # preservando os canais de cor a/b intactos.
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l_channel = clahe.apply(l_channel)
+    img = cv2.cvtColor(cv2.merge((l_channel, a_channel, b_channel)), cv2.COLOR_LAB2BGR)
+
+    base, ext = os.path.splitext(caminho_arquivo)
+    caminho_saida = f"{base}_prep{ext}"
+    cv2.imwrite(caminho_saida, img)
+    return caminho_saida
+
+
+def binarizar_para_ocr_tradicional(caminho_arquivo: str) -> Optional[str]:
+    """Pipeline agressivo (grayscale + threshold adaptativo).
+
+    Uso exclusivo para comparativos com OCR tradicional (Tesseract). Não
+    chamar essa função no pipeline principal de extração com Gemini.
+    """
+    if _extensao(caminho_arquivo) not in EXTENSOES_IMAGEM:
+        return None
+
+    img = cv2.imread(caminho_arquivo)
+    if img is None:
+        return None
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    angle = _calcular_angulo_deskew(gray)
+    if abs(angle) > 0.5:
+        gray = _rotacionar(gray, angle)
 
-    # 3. Correção Suave de Rotação (Deskew)
-    # Binariza a imagem invertida apenas para localizar os blocos de texto
-    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    
-    # Encontra as coordenadas de todos os pixels de texto
-    coords = np.column_stack(np.where(mask > 0))
-    if len(coords) > 0:
-        # Calcula o ângulo da caixa delimitadora que envolve o texto
-        angle = cv2.minAreaRect(coords)[-1]
-        
-        # Ajuste de compensação do ângulo do OpenCV
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-
-        # Só rotaciona se a inclinação for maior que 0.5 graus (evita distorcer imagens boas)
-        if abs(angle) > 0.5:
-            (h, w) = gray.shape[:2]
-            centro = (w // 2, h // 2)
-            M = cv2.getRotationMatrix2D(centro, angle, 1.0)
-            # Aplica a rotação preenchendo as bordas vazias com a cor mais próxima
-            gray = cv2.warpAffine(gray, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-
-    # 4. Aumento de Contraste e Binarização Adaptativa
-    # O desfoque suave (Blur) ajuda a remover pequenos ruídos pontuais antes do contraste
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Usamos o Adaptive Threshold porque ele lida incrivelmente bem com sombras
-    # irregulares causadas por fotos tiradas de celular, calculando o contraste por regiões.
     processada = cv2.adaptiveThreshold(
-        blur, 
-        255, 
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 
-        21, # Tamanho do bloco (área de cálculo local)
-        10  # Constante subtraída da média (ajuste de sensibilidade)
+        blur,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        21,
+        10,
     )
 
-    # 5. Sobrescrever o arquivo salvo com a versão limpa
-    cv2.imwrite(caminho_arquivo, processada)
-    
-    return True
+    base, ext = os.path.splitext(caminho_arquivo)
+    caminho_saida = f"{base}_bin{ext}"
+    cv2.imwrite(caminho_saida, processada)
+    return caminho_saida
