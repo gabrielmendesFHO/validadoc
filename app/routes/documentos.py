@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados
-from ..services.gemini_service import GeminiExtractionError, extrair_dados_documento
+from ..services.gemini_service import GeminiExtractionError, avaliar_possivel_divergencia, extrair_dados_documento
 from ..services.image_processing import preparar_para_ia_multimodal
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
@@ -79,11 +79,16 @@ async def upload_documento(
     try:
         dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
         novo_documento.status_processamento = "CONCLUIDO"
+
+        status_auditoria = "EXTRAIDO"
+        if avaliar_possivel_divergencia(dados_extraidos, solicitado.nome_documento):
+            status_auditoria = "POSSIVEL_DIVERGENCIA"
+
         analise = AnalisesOcr(
             documento_id=novo_documento.id,
             dados_extraidos=json.dumps(dados_extraidos, ensure_ascii=False),
             taxa_confianca=(dados_extraidos.get("legibilidade") or 0) / 100,
-            status_auditoria="EXTRAIDO",  # veredito final (APTO/NAO_APTO) é da Fase 2, a nível de inscrição
+            status_auditoria=status_auditoria,  # veredito final (APTO/NAO_APTO) é da Fase 2, a nível de inscrição
         )
     except GeminiExtractionError as exc:
         novo_documento.status_processamento = "ERRO_EXTRACAO"

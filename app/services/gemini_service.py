@@ -166,6 +166,23 @@ def _mime_type(caminho_arquivo: str) -> str:
     tipo, _ = mimetypes.guess_type(caminho_arquivo)
     return tipo or "application/octet-stream"
 
+def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str) -> bool:
+    """Heurística simples: se metade ou mais dos campos-chave do tipo de
+    documento (os campos obrigatórios específicos, sem contar legibilidade/
+    qualidade_imagem/documento_integro) vieram nulos, é provável que o
+    solicitado_id não bate com o arquivo enviado — ex.: holerite no card de RG."""
+    config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
+    campos_obrigatorios = config_extracao["schema"].get("required", [])
+    campos_chave = [c for c in campos_obrigatorios if c not in _CAMPOS_COMUNS]
+
+    if not campos_chave:
+        return False
+
+    nulos = sum(
+        1 for campo in campos_chave
+        if dados_extraidos.get(campo) in (None, "", [])
+    )
+    return (nulos / len(campos_chave)) >= 0.5
 
 def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
     """Envia o documento pro Gemini e devolve os campos extraídos como dict.

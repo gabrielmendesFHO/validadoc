@@ -83,35 +83,35 @@ def preparar_para_ia_multimodal(caminho_arquivo: str) -> str:
     return caminho_saida
 
 
-def binarizar_para_ocr_tradicional(caminho_arquivo: str) -> Optional[str]:
-    """Pipeline agressivo (grayscale + threshold adaptativo).
+# def binarizar_para_ocr_tradicional(caminho_arquivo: str) -> Optional[str]:
+#     """Pipeline agressivo (grayscale + threshold adaptativo).
 
-    Uso exclusivo para comparativos com OCR tradicional (Tesseract). Não
-    chamar essa função no pipeline principal de extração com Gemini.
-    """
-    if _extensao(caminho_arquivo) not in EXTENSOES_IMAGEM:
-        return None
+#     Uso exclusivo para comparativos com OCR tradicional (Tesseract). Não
+#     chamar essa função no pipeline principal de extração com Gemini.
+#     """
+#     if _extensao(caminho_arquivo) not in EXTENSOES_IMAGEM:
+#         return None
 
-    img = cv2.imread(caminho_arquivo)
-    if img is None:
-        return None
+#     img = cv2.imread(caminho_arquivo)
+#     if img is None:
+#         return None
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    angle = _calcular_angulo_deskew(gray)
-    if abs(angle) > 0.5:
-        gray = _rotacionar(gray, angle)
+#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#     angle = _calcular_angulo_deskew(gray)
+#     if abs(angle) > 0.5:
+#         gray = _rotacionar(gray, angle)
 
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    processada = cv2.adaptiveThreshold(
-        blur,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        21,
-        10,
-    )
+#     blur = cv2.GaussianBlur(gray, (5, 5), 0)
+#     processada = cv2.adaptiveThreshold(
+#         blur,
+#         255,
+#         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+#         cv2.THRESH_BINARY,
+#         21,
+#         10,
+#     )
 
-    base, ext = os.path.splitext(caminho_arquivo)
-    caminho_saida = f"{base}_bin{ext}"
-    cv2.imwrite(caminho_saida, processada)
-    return caminho_saida
+#     base, ext = os.path.splitext(caminho_arquivo)
+#     caminho_saida = f"{base}_bin{ext}"
+#     cv2.imwrite(caminho_saida, processada)
+#     return caminho_saida
