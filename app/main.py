@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
-from .routes import documentos
+from .routes import documentos, inscricoes
+
 
 from .config import settings
 from .db import (
@@ -13,6 +14,7 @@ from .db import (
 
 app = FastAPI(title=settings.app_name)
 app.include_router(documentos.router)
+app.include_router(inscricoes.router)
 
 
 @app.get("/")
