@@ -83,6 +83,9 @@ class Inscricoes(Base):
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
     candidato_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     status_geral = Column(String(50), nullable=False, server_default=text("'PENDENTE'"))
+    renda_per_capita_calculada = Column(DECIMAL(10, 2), nullable=True)
+    parecer = Column(Text, nullable=True)
+    inconsistencias = Column(Text, nullable=True)
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     processo = relationship("ProcessosBolsa", back_populates="inscricoes")
