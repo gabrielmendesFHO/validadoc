@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import Any, Dict
 import json
 import mimetypes
+import re
 
 from google import genai
 from google.genai import types
@@ -69,7 +70,9 @@ _INSTRUCAO_BASE = (
 _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG": {
         "prompt": _INSTRUCAO_BASE
-        + " O documento é um RG (Registro Geral / Carteira de Identidade) brasileiro.",
+        + " O documento é a frente do RG (Registro Geral / Carteira de Identidade) brasileiro. "
+        + "Extraia apenas os campos visíveis na frente. Se algum campo não estiver legível ou não aparecer "
+        + "na imagem, retorne null, nunca invente dados.",
         "schema": {
             "type": "OBJECT",
             "properties": {
@@ -82,8 +85,28 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "uf": {"type": "STRING"},
                 "data_expedicao": {"type": "STRING"},
                 "cpf": {"type": "STRING"},
+                "lado_documento": {"type": "STRING", "description": "Lado do documento: frente."},
             },
-            "required": ["nome", "numero_rg", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
+        },
+    },
+    "RG_VERSO": {
+        "prompt": _INSTRUCAO_BASE
+        + " O documento é o verso do RG (Registro Geral / Carteira de Identidade) brasileiro. "
+        + "Extraia apenas os campos visíveis no verso. Se o verso não mostrar informação relevante, "
+        + "retorne null para esse campo e não invente dados.",
+        "schema": {
+            "type": "OBJECT",
+            "properties": {
+                **_CAMPOS_COMUNS,
+                "numero_rg": {"type": "STRING"},
+                "codigo_barras": {"type": "STRING"},
+                "municipio_expedicao": {"type": "STRING"},
+                "data_emissao": {"type": "STRING"},
+                "observacoes": {"type": "STRING"},
+                "lado_documento": {"type": "STRING", "description": "Lado do documento: verso."},
+            },
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "CNH": {
@@ -100,7 +123,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "categorias": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "cpf": {"type": "STRING"},
             },
-            "required": ["nome", "numero_cnh", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "RESIDENCIA": {
@@ -115,7 +138,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "cep": {"type": "STRING"},
                 "data_emissao": {"type": "STRING"},
             },
-            "required": ["endereco", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "HOLERITE": {
@@ -136,7 +159,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "renda_liquida": {"type": "NUMBER"},
                 "data_emissao": {"type": "STRING"},
             },
-            "required": ["renda_bruta", "renda_liquida", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "OUTRO": {
@@ -149,7 +172,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "tipo_documento_identificado": {"type": "STRING"},
                 "dados_relevantes": {
                     "type": "STRING",
-                    "description": "Resumo livre de outras informações relevantes encontradas.",
+                    "description": "Resumo livre de outras informações relevantes encontradas. Se não houver dado claro, retorne null.",
                 },
             },
             "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
@@ -165,6 +188,21 @@ def _mime_type(caminho_arquivo: str) -> str:
             return mime
     tipo, _ = mimetypes.guess_type(caminho_arquivo)
     return tipo or "application/octet-stream"
+
+
+def _parse_json_response(raw_text: str) -> dict:
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Resposta vazia do Gemini.")
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Resposta do Gemini não é JSON válido: {exc}") from exc
+
 
 def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str) -> bool:
     """Heurística simples: se metade ou mais dos campos-chave do tipo de
@@ -218,12 +256,29 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
                 temperature=0.1,
             ),
         )
+        return _parse_json_response(response.text)
     except GeminiExtractionError:
         raise
     except Exception as exc:  # falhas de rede, quota, autenticação etc.
-        raise GeminiExtractionError(f"Falha na chamada à API do Gemini: {exc}") from exc
-
-    try:
-        return json.loads(response.text)
-    except (json.JSONDecodeError, AttributeError) as exc:
-        raise GeminiExtractionError(f"Resposta do Gemini não é um JSON válido: {exc}") from exc
+        fallback_prompt = (
+            config_extracao["prompt"]
+            + " Responda SOMENTE em JSON válido, sem explicações e sem markdown. "
+            + "Se não houver dado, use null."
+        )
+        try:
+            response_fallback = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=[
+                    fallback_prompt,
+                    types.Part.from_bytes(data=dados_arquivo, mime_type=_mime_type(caminho_arquivo)),
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+            return _parse_json_response(response_fallback.text)
+        except Exception as fallback_exc:
+            raise GeminiExtractionError(
+                f"Falha na chamada à API do Gemini: {exc}. Fallback também falhou: {fallback_exc}"
+            ) from fallback_exc

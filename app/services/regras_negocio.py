@@ -5,6 +5,7 @@ consistência financeira, teto de elegibilidade e validação de identidade.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 import re
 
@@ -40,6 +41,31 @@ def _normalizar_nome(nome):
     if not nome:
         return None
     return " ".join(nome.strip().upper().split())
+
+
+def _valor_para_float(valor, default=0.0):
+    if valor is None or valor == "":
+        return float(default)
+
+    if isinstance(valor, Decimal):
+        return float(valor)
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    if isinstance(valor, str):
+        texto = valor.strip()
+        if not texto:
+            return float(default)
+        texto = texto.replace("R$", "").replace(" ", "")
+        texto = texto.replace(".", "").replace(",", ".")
+        try:
+            return float(texto)
+        except ValueError:
+            return float(default)
+
+    try:
+        return float(valor)
+    except (TypeError, ValueError, InvalidOperation):
+        return float(default)
 
 
 def auditar_inscricao(candidato, documentos_com_analise, membros_familia, processo) -> ResultadoAuditoria:
@@ -87,18 +113,20 @@ def auditar_inscricao(candidato, documentos_com_analise, membros_familia, proces
     holerite = dados_por_categoria.get("HOLERITE")
     renda_bruta_candidato = None
     if holerite:
-        renda_bruta_candidato = holerite.get("renda_bruta")
-        renda_liquida = holerite.get("renda_liquida")
+        renda_bruta_candidato = _valor_para_float(holerite.get("renda_bruta"), default=None)
+        renda_liquida = _valor_para_float(holerite.get("renda_liquida"), default=None)
         if renda_bruta_candidato is not None and renda_liquida is not None:
             if renda_liquida > renda_bruta_candidato:
                 inconsistencias.append(
-                    f"Renda líquida (R$ {renda_liquida}) maior que a renda bruta (R$ {renda_bruta_candidato})."
+                    f"Renda líquida (R$ {renda_liquida:.2f}) maior que a renda bruta (R$ {renda_bruta_candidato:.2f})."
                 )
 
     # 4. Teto de elegibilidade — renda per capita
     renda_per_capita = None
     if renda_bruta_candidato is not None:
-        renda_total = renda_bruta_candidato + sum((m.renda_declarada or 0) for m in membros_familia)
+        renda_total = renda_bruta_candidato + sum(
+            _valor_para_float(m.renda_declarada) for m in membros_familia
+        )
         num_membros = 1 + len(membros_familia)
         renda_per_capita = round(renda_total / num_membros, 2)
 

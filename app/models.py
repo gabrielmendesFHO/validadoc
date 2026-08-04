@@ -49,7 +49,10 @@ class DocumentosSolicitados(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
-    nome_documento = Column(Enum('RG','CNH','RESIDENCIA','HOLERITE','OUTRO', name='documento_categoria'), nullable=False)
+    nome_documento = Column(
+        Enum('RG', 'RG_VERSO', 'CNH', 'RESIDENCIA', 'HOLERITE', 'OUTRO', name='documento_categoria'),
+        nullable=False,
+    )
     obrigatorio = Column(Integer, nullable=False, server_default=text("0"))
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 

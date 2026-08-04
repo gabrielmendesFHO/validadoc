@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
@@ -11,6 +12,23 @@ from ..db import get_db
 from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados
 from ..services.gemini_service import GeminiExtractionError, avaliar_possivel_divergencia, extrair_dados_documento
 from ..services.image_processing import preparar_para_ia_multimodal
+
+class SolicitadoDocumentoEnum(str, Enum):
+    CNH = "CNH"
+    RESIDENCIA = "RESIDENCIA"
+    HOLERITE = "HOLERITE"
+    RG = "RG"
+    RG_VERSO = "RG_VERSO"
+
+
+SOLICITADO_ID_POR_TIPO = {
+    SolicitadoDocumentoEnum.CNH: 1,
+    SolicitadoDocumentoEnum.RESIDENCIA: 2,
+    SolicitadoDocumentoEnum.HOLERITE: 3,
+    SolicitadoDocumentoEnum.RG: 4,
+    SolicitadoDocumentoEnum.RG_VERSO: 5,
+}
+
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
@@ -23,24 +41,25 @@ EXTENSOES_PERMITIDAS = (".png", ".jpg", ".jpeg", ".pdf")
 @router.post("/upload")
 async def upload_documento(
     inscricao_id: int = Form(...),
-    solicitado_id: int = Form(...),
+    solicitado_id: SolicitadoDocumentoEnum = Form(...),
     membro_id: Optional[int] = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    solicitado_id_numero = SOLICITADO_ID_POR_TIPO[solicitado_id]
     # 1. Validação de extensão
     if not file.filename.lower().endswith(EXTENSOES_PERMITIDAS):
         raise HTTPException(status_code=400, detail="Formato de arquivo não suportado.")
 
     # 2. Confere se o documento solicitado existe e recupera a categoria
     #    (ex.: "RG", "HOLERITE") que define qual prompt/schema o Gemini usa
-    solicitado = db.get(DocumentosSolicitados, solicitado_id)
+    solicitado = db.get(DocumentosSolicitados, solicitado_id_numero)
     if solicitado is None:
         raise HTTPException(status_code=400, detail="solicitado_id não encontrado.")
 
     # 3. Salva o arquivo original no disco (nunca é sobrescrito depois)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    safe_filename = f"{inscricao_id}_{solicitado_id}_{timestamp}_{file.filename}"
+    safe_filename = f"{inscricao_id}_{solicitado_id_numero}_{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
     with open(file_path, "wb") as buffer:
@@ -53,7 +72,7 @@ async def upload_documento(
     try:
         novo_documento = DocumentosEnviados(
             inscricao_id=inscricao_id,
-            solicitado_id=solicitado_id,
+            solicitado_id=solicitado_id_numero,
             membro_id=membro_id,
             caminho_arquivo=file_path,
             status_processamento="PROCESSANDO",
