@@ -23,7 +23,6 @@ class SolicitadoDocumentoEnum(str, Enum):
     RESIDENCIA = "RESIDENCIA"
     HOLERITE = "HOLERITE"
     RG = "RG"
-    RG_VERSO = "RG_VERSO"
 
 
 SOLICITADO_ID_POR_TIPO = {
@@ -31,7 +30,6 @@ SOLICITADO_ID_POR_TIPO = {
     SolicitadoDocumentoEnum.RESIDENCIA: 2,
     SolicitadoDocumentoEnum.HOLERITE: 3,
     SolicitadoDocumentoEnum.RG: 4,
-    SolicitadoDocumentoEnum.RG_VERSO: 5,
 }
 
 
@@ -49,6 +47,7 @@ async def upload_documento(
     solicitado_id: SolicitadoDocumentoEnum = Form(...),
     membro_id: Optional[int] = Form(None),
     file: UploadFile = File(...),
+    lado: Optional[str] = Form(None),  # "frente" ou "verso" para documentos com dois lados
     db: Session = Depends(get_db),
 ):
     solicitado_id_numero = SOLICITADO_ID_POR_TIPO[solicitado_id]
@@ -126,12 +125,16 @@ async def upload_documento(
     # 7. Extração via Gemini
     dados_extraidos = dados_pre_extraidos
     try:
+<<<<<<< HEAD
+        dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento, lado=lado)
+=======
         if dados_extraidos is None:
             dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
+>>>>>>> origin/main
         novo_documento.status_processamento = "CONCLUIDO"
 
         status_auditoria = "EXTRAIDO"
-        if avaliar_possivel_divergencia(dados_extraidos, solicitado.nome_documento):
+        if avaliar_possivel_divergencia(dados_extraidos, solicitado.nome_documento, lado=lado):
             status_auditoria = "POSSIVEL_DIVERGENCIA"
 
         analise = AnalisesOcr(
