@@ -49,7 +49,10 @@ class DocumentosSolicitados(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
-    nome_documento = Column(String(100), nullable=False)
+    nome_documento = Column(
+        Enum('RG', 'RG_VERSO', 'CNH', 'RESIDENCIA', 'HOLERITE', 'OUTRO', name='documento_categoria'),
+        nullable=False,
+    )
     obrigatorio = Column(Integer, nullable=False, server_default=text("0"))
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
@@ -69,6 +72,7 @@ class Usuarios(Base):
         nullable=False,
         server_default=text("'CANDIDATO'"),
     )
+    cpf = Column(String(14), nullable=True)
     instituicao_id = Column(Integer, ForeignKey("instituicoes.id"), nullable=True)
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
@@ -83,6 +87,9 @@ class Inscricoes(Base):
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
     candidato_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     status_geral = Column(String(50), nullable=False, server_default=text("'PENDENTE'"))
+    renda_per_capita_calculada = Column(DECIMAL(10, 2), nullable=True)
+    parecer = Column(Text, nullable=True)
+    inconsistencias = Column(Text, nullable=True)
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     processo = relationship("ProcessosBolsa", back_populates="inscricoes")

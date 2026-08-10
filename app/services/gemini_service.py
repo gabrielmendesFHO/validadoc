@@ -1,7 +1,7 @@
 """Integração com a API do Gemini para extração estruturada dos documentos.
 
 Cada categoria de documento (igual ao `nome_documento` cadastrado em
-`documentos_solicitados`: CNH, RG, RESIDENCIA, HOLERITE) tem um prompt e um
+`documentos_solicitados`: CNH, RG, RG_VERSO, RESIDENCIA, HOLERITE) tem um prompt e um
 schema de resposta próprios — os campos relevantes mudam bastante entre um
 RG e um holerite. Categorias sem schema específico caem no schema genérico
 'OUTRO'.
@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import Any, Dict
 import json
 import mimetypes
+import re
 
 from google import genai
 from google.genai import types
@@ -29,6 +30,17 @@ _MIME_POR_EXTENSAO = {
 
 class GeminiExtractionError(Exception):
     """Erro ao chamar a API do Gemini ou ao interpretar a resposta."""
+
+
+def lado_documento_invalido(dados_extraidos: dict, categoria: str) -> bool:
+    """Confere se o Gemini identificou o lado esperado do RG."""
+    lados_esperados = {"RG": "frente", "RG_VERSO": "verso"}
+    lado_esperado = lados_esperados.get(categoria.upper())
+    if lado_esperado is None:
+        return False
+
+    lado_identificado = str(dados_extraidos.get("lado_documento") or "").strip().lower()
+    return lado_identificado != lado_esperado
 
 
 @lru_cache(maxsize=1)
@@ -58,6 +70,14 @@ _CAMPOS_COMUNS: Dict[str, Any] = {
     },
 }
 
+_CAMPOS_CHAVE_POR_CATEGORIA = {
+    "RG": ("nome", "data_nascimento", "nome_pai", "nome_mae"),
+    "RG_VERSO": ("numero_rg", "cpf"),
+    "CNH": ("nome", "numero_cnh", "cpf"),
+    "RESIDENCIA": ("nome_titular", "endereco", "data_emissao"),
+    "HOLERITE": ("nome", "cpf", "renda_bruta", "renda_liquida", "data_emissao"),
+}
+
 _INSTRUCAO_BASE = (
     "Você é um auditor documental. Analise a imagem do documento enviado e "
     "extraia SOMENTE os campos definidos no schema de resposta. Se um campo "
@@ -69,21 +89,44 @@ _INSTRUCAO_BASE = (
 _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG": {
         "prompt": _INSTRUCAO_BASE
-        + " O documento é um RG (Registro Geral / Carteira de Identidade) brasileiro.",
+        + " O documento é a frente do RG (Registro Geral / Carteira de Identidade) brasileiro. "
+        + "A frente contém principalmente dados pessoais e de filiação. Extraia somente nome, data de nascimento, "
+        + "nome do pai e nome da mãe visíveis na frente. NÃO extraia nem tente inferir CPF, número do RG, órgão "
+        + "expedidor, UF ou data de expedição; esses campos pertencem ao verso. Se algum campo não estiver legível "
+        + "ou não aparecer na imagem, retorne null, nunca invente dados.",
         "schema": {
             "type": "OBJECT",
             "properties": {
                 **_CAMPOS_COMUNS,
                 "nome": {"type": "STRING"},
                 "data_nascimento": {"type": "STRING"},
-                "filiacao": {"type": "STRING", "description": "Nome do pai e da mãe, separados por ' e '."},
+                "nome_pai": {"type": "STRING"},
+                "nome_mae": {"type": "STRING"},
+                "lado_documento": {"type": "STRING", "description": "Lado do documento: frente."},
+            },
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
+        },
+    },
+    "RG_VERSO": {
+        "prompt": _INSTRUCAO_BASE
+        + " O documento é o verso do RG (Registro Geral / Carteira de Identidade) brasileiro. "
+        + "Extraia somente número do RG, CPF, órgão expedidor, UF, data de expedição e informações de identificação "
+        + "que estejam visíveis no verso. NÃO extraia nomes de pai ou mãe deste lado. Se um campo não estiver legível "
+        + "ou não aparecer na imagem, retorne null, nunca invente dados.",
+        "schema": {
+            "type": "OBJECT",
+            "properties": {
+                **_CAMPOS_COMUNS,
                 "numero_rg": {"type": "STRING"},
+                "cpf": {"type": "STRING"},
                 "orgao_expedidor": {"type": "STRING"},
                 "uf": {"type": "STRING"},
                 "data_expedicao": {"type": "STRING"},
-                "cpf": {"type": "STRING"},
+                "codigo_barras": {"type": "STRING"},
+                "observacoes": {"type": "STRING"},
+                "lado_documento": {"type": "STRING", "description": "Lado do documento: verso."},
             },
-            "required": ["nome", "numero_rg", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
         "schema_frente": {
             "type": "OBJECT",
@@ -124,7 +167,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "categorias": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "cpf": {"type": "STRING"},
             },
-            "required": ["nome", "numero_cnh", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "RESIDENCIA": {
@@ -139,7 +182,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "cep": {"type": "STRING"},
                 "data_emissao": {"type": "STRING"},
             },
-            "required": ["endereco", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "HOLERITE": {
@@ -160,7 +203,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "renda_liquida": {"type": "NUMBER"},
                 "data_emissao": {"type": "STRING"},
             },
-            "required": ["renda_bruta", "renda_liquida", "legibilidade", "qualidade_imagem", "documento_integro"],
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "OUTRO": {
@@ -173,7 +216,7 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "tipo_documento_identificado": {"type": "STRING"},
                 "dados_relevantes": {
                     "type": "STRING",
-                    "description": "Resumo livre de outras informações relevantes encontradas.",
+                    "description": "Resumo livre de outras informações relevantes encontradas. Se não houver dado claro, retorne null.",
                 },
             },
             "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
@@ -190,30 +233,50 @@ def _mime_type(caminho_arquivo: str) -> str:
     tipo, _ = mimetypes.guess_type(caminho_arquivo)
     return tipo or "application/octet-stream"
 
+def _parse_json_response(raw_text: str) -> dict:
+    text = (raw_text or "").strip()
+    if not text:
+        raise ValueError("Resposta vazia do Gemini.")
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE | re.DOTALL)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Resposta do Gemini não é JSON válido: {exc}") from exc
+
+
+def _filtrar_campos_resposta(dados: dict, schema: dict) -> dict:
+    """Descarta campos que não pertencem ao contrato do documento."""
+    propriedades = schema.get("properties", {})
+    return {campo: dados.get(campo) for campo in propriedades if campo in dados}
+
+
 def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str, lado: str = None) -> bool:
     """Heurística simples: se metade ou mais dos campos-chave do tipo de
     documento (os campos obrigatórios específicos, sem contar legibilidade/
     qualidade_imagem/documento_integro) vieram nulos, é provável que o
     solicitado_id não bate com o arquivo enviado — ex.: holerite no card de RG.
-    
-    Para RG, ajusta os campos esperados de acordo com o lado (frente/verso).
+
+    Para RG, se o lado for passado, ajusta os campos esperados (frente/verso).
     """
-    config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
-    
-    # Seleciona o schema correto de acordo com o lado
-    if categoria.upper() == "RG" and lado:
+    categoria = categoria.upper()
+    # Se o usuário especificou lado para RG, mapeia para a categoria certa
+    if categoria == "RG" and lado:
         lado = lado.lower()
-        if lado == "frente":
-            schema = config_extracao.get("schema_frente", config_extracao["schema"])
-        elif lado == "verso":
-            schema = config_extracao.get("schema_verso", config_extracao["schema"])
-        else:
-            schema = config_extracao["schema"]
-    else:
-        schema = config_extracao["schema"]
-    
-    campos_obrigatorios = schema.get("required", [])
-    campos_chave = [c for c in campos_obrigatorios if c not in _CAMPOS_COMUNS]
+        categoria = "RG" if lado == "frente" else "RG_VERSO" if lado == "verso" else categoria
+
+    campos_chave = _CAMPOS_CHAVE_POR_CATEGORIA.get(categoria, ())
+
+    if not campos_chave:
+        return False
+
+    nulos = sum(
+        1 for campo in campos_chave
+        if dados_extraidos.get(campo) in (None, "", [])
+    )
+    return (nulos / len(campos_chave)) >= 0.5
 
     if not campos_chave:
         return False
@@ -228,7 +291,7 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str, lado: str = No
     """Envia o documento pro Gemini e devolve os campos extraídos como dict.
 
     `categoria` deve bater com `documentos_solicitados.nome_documento`
-    (CNH, RESIDENCIA, HOLERITE, RG). Categorias desconhecidas caem no
+    (CNH, RESIDENCIA, HOLERITE, RG, RG_VERSO). Categorias desconhecidas caem no
     schema genérico 'OUTRO'.
     
     `lado` é opcional — apenas RG suporta "frente" ou "verso" pra ajustar
@@ -278,18 +341,43 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str, lado: str = No
                 temperature=0.1,
             ),
         )
+        dados = _parse_json_response(response.text)
+        return _filtrar_campos_resposta(dados, schema)
     except GeminiExtractionError:
         raise
     except Exception as exc:  # falhas de rede, quota, autenticação etc.
         msg = str(exc)
         # Mensagens comuns que indicam chave inválida ou problema de autenticação
-        if "API_KEY_INVALID" in msg or "API key not valid" in msg or "API key" in msg and "invalid" in msg.lower():
+        if (
+            "API_KEY_INVALID" in msg
+            or "API key not valid" in msg
+            or ("API key" in msg and "invalid" in msg.lower())
+        ):
             raise GeminiExtractionError(
                 "Chave da API do Gemini inválida ou não autorizada. Verifique GEMINI_API_KEY em .env, habilite a API Generative Language no Google Cloud, confirme billing e remova restricoes da chave temporariamente."
             ) from exc
-        raise GeminiExtractionError(f"Falha na chamada à API do Gemini: {exc}") from exc
 
-    try:
-        return json.loads(response.text)
-    except (json.JSONDecodeError, AttributeError) as exc:
-        raise GeminiExtractionError(f"Resposta do Gemini não é um JSON válido: {exc}") from exc
+        # Tentativa de fallback usando prompt que reforça JSON puro
+        fallback_prompt = (
+            prompt
+            + " Responda SOMENTE em JSON válido, sem explicações e sem markdown. "
+            + "Se não houver dado, use null."
+        )
+        try:
+            response_fallback = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=[
+                    fallback_prompt,
+                    types.Part.from_bytes(data=dados_arquivo, mime_type=_mime_type(caminho_arquivo)),
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                ),
+            )
+            dados = _parse_json_response(response_fallback.text)
+            return _filtrar_campos_resposta(dados, schema)
+        except Exception as fallback_exc:
+            raise GeminiExtractionError(
+                f"Falha na chamada à API do Gemini: {exc}. Fallback também falhou: {fallback_exc}"
+            ) from fallback_exc
