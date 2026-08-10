@@ -1,8 +1,8 @@
-"""Testar extração local de um arquivo existente em uploads/documentos.
+"""Script para testar extração local de um arquivo existente em uploads/documentos.
 Uso:
-    python scripts\test_extract_file.py "uploads/documentos/arquivo.jpg" [categoria] [lado]
+    python scripts\run_extract_file.py "uploads/documentos/arquivo.jpg" [categoria] [lado]
 Exemplo:
-    python scripts\test_extract_file.py "uploads/documentos/1_2_20260810114120_RG frente _1 (1).jpg" RG frente
+    python scripts\run_extract_file.py "uploads/documentos/1_2_20260810114120_RG frente _1 (1).jpg" RG frente
 """
 import sys
 import os
@@ -15,7 +15,7 @@ if repo_root not in sys.path:
 from app.services.gemini_service import extrair_dados_documento, GeminiExtractionError
 
 if len(sys.argv) < 2:
-    print("Uso: python scripts\\test_extract_file.py <caminho_arquivo> [categoria] [lado]")
+    print("Uso: python scripts\\run_extract_file.py <caminho_arquivo> [categoria] [lado]")
     sys.exit(2)
 
 caminho = sys.argv[1]
