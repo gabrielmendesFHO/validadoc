@@ -71,12 +71,14 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG": {
         "prompt": _INSTRUCAO_BASE
         + " O documento é a frente do RG (Registro Geral / Carteira de Identidade) brasileiro. "
-        + "Extraia apenas os campos visíveis na frente. Se algum campo não estiver legível ou não aparecer "
-        + "na imagem, retorne null, nunca invente dados.",
+        + "Se a imagem mostrar apenas a frente ou apenas o verso, retorne null para campos ausentes "
+        + "e inclua o campo 'lado' com valor 'FRENTE' ou 'VERSO'. Extraia apenas os campos visíveis na frente. "
+        + "Se algum campo não estiver legível ou não aparecer na imagem, retorne null, nunca invente dados.",
         "schema": {
             "type": "OBJECT",
             "properties": {
                 **_CAMPOS_COMUNS,
+                "lado": {"type": "STRING", "description": "FRENTE ou VERSO, conforme o lado visível na imagem."},
                 "nome": {"type": "STRING"},
                 "data_nascimento": {"type": "STRING"},
                 "filiacao": {"type": "STRING", "description": "Nome do pai e da mãe, separados por ' e '."},
@@ -87,26 +89,8 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "cpf": {"type": "STRING"},
                 "lado_documento": {"type": "STRING", "description": "Lado do documento: frente."},
             },
-            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
-        },
-    },
-    "RG_VERSO": {
-        "prompt": _INSTRUCAO_BASE
-        + " O documento é o verso do RG (Registro Geral / Carteira de Identidade) brasileiro. "
-        + "Extraia apenas os campos visíveis no verso. Se o verso não mostrar informação relevante, "
-        + "retorne null para esse campo e não invente dados.",
-        "schema": {
-            "type": "OBJECT",
-            "properties": {
-                **_CAMPOS_COMUNS,
-                "numero_rg": {"type": "STRING"},
-                "codigo_barras": {"type": "STRING"},
-                "municipio_expedicao": {"type": "STRING"},
-                "data_emissao": {"type": "STRING"},
-                "observacoes": {"type": "STRING"},
-                "lado_documento": {"type": "STRING", "description": "Lado do documento: verso."},
-            },
-            "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
+            # Tornar menos estrito: nem sempre o lado da frente traz número ou CPF.
+            "required": ["nome", "legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "CNH": {
