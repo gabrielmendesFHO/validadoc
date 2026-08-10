@@ -281,6 +281,12 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str, lado: str = No
     except GeminiExtractionError:
         raise
     except Exception as exc:  # falhas de rede, quota, autenticação etc.
+        msg = str(exc)
+        # Mensagens comuns que indicam chave inválida ou problema de autenticação
+        if "API_KEY_INVALID" in msg or "API key not valid" in msg or "API key" in msg and "invalid" in msg.lower():
+            raise GeminiExtractionError(
+                "Chave da API do Gemini inválida ou não autorizada. Verifique GEMINI_API_KEY em .env, habilite a API Generative Language no Google Cloud, confirme billing e remova restricoes da chave temporariamente."
+            ) from exc
         raise GeminiExtractionError(f"Falha na chamada à API do Gemini: {exc}") from exc
 
     try:
