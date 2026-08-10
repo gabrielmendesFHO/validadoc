@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados
-from ..services.gemini_service import GeminiExtractionError, avaliar_possivel_divergencia, extrair_dados_documento
+from ..services.gemini_service import (
+    GeminiExtractionError,
+    avaliar_possivel_divergencia,
+    extrair_dados_documento,
+    lado_documento_invalido,
+)
 from ..services.image_processing import preparar_para_ia_multimodal
 
 class SolicitadoDocumentoEnum(str, Enum):
@@ -66,7 +71,30 @@ async def upload_documento(
         content = await file.read()
         buffer.write(content)
 
-    # 4. Registra o documento no banco antes de chamar a IA, pra já existir
+    # 4. Para RG, valida o lado antes de criar qualquer registro no banco.
+    caminho_para_ia = None
+    dados_pre_extraidos = None
+    if solicitado.nome_documento in {"RG", "RG_VERSO"}:
+        caminho_para_ia = preparar_para_ia_multimodal(file_path)
+        try:
+            dados_pre_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
+        except GeminiExtractionError as exc:
+            for caminho in {file_path, caminho_para_ia}:
+                if caminho and os.path.exists(caminho):
+                    os.remove(caminho)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        if lado_documento_invalido(dados_pre_extraidos, solicitado.nome_documento):
+            for caminho in {file_path, caminho_para_ia}:
+                if caminho and os.path.exists(caminho):
+                    os.remove(caminho)
+            lado_esperado = "frente" if solicitado.nome_documento == "RG" else "verso"
+            raise HTTPException(
+                status_code=422,
+                detail=f"Documento inválido: envie o lado {lado_esperado} do RG.",
+            )
+
+    # 5. Registra o documento no banco antes de chamar a IA, pra já existir
     #    um documento_id pra vincular a análise (e pra não perder o registro
     #    do upload caso a extração falhe)
     try:
@@ -82,21 +110,24 @@ async def upload_documento(
         db.refresh(novo_documento)
     except IntegrityError:
         db.rollback()
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        for caminho in {file_path, caminho_para_ia}:
+            if caminho and os.path.exists(caminho):
+                os.remove(caminho)
         raise HTTPException(
             status_code=400,
             detail="Erro de integridade: verifique se inscricao_id, solicitado_id ou membro_id existem no banco.",
         )
 
-    # 5. Pré-processamento leve (deskew + contraste, mantendo cor) — não
+    # 6. Pré-processamento leve (deskew + contraste, mantendo cor) — não
     #    sobrescreve o arquivo original, gera uma cópia à parte
-    caminho_para_ia = preparar_para_ia_multimodal(file_path)
+    if caminho_para_ia is None:
+        caminho_para_ia = preparar_para_ia_multimodal(file_path)
 
-    # 6. Extração via Gemini
-    dados_extraidos = None
+    # 7. Extração via Gemini
+    dados_extraidos = dados_pre_extraidos
     try:
-        dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
+        if dados_extraidos is None:
+            dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
         novo_documento.status_processamento = "CONCLUIDO"
 
         status_auditoria = "EXTRAIDO"

@@ -71,6 +71,7 @@ def auditar_inscricao_endpoint(inscricao_id: int, db: Session = Depends(get_db))
         return {"status_geral": inscricao.status_geral, "parecer": inscricao.parecer}
 
     documentos_com_analise = []
+    partes_rg = []
     for doc in enviados:
         categoria = solicitado_por_id.get(doc.solicitado_id, "OUTRO")
         ultima_analise = (
@@ -83,7 +84,29 @@ def auditar_inscricao_endpoint(inscricao_id: int, db: Session = Depends(get_db))
         if ultima_analise and ultima_analise.dados_extraidos:
             dados = json.loads(ultima_analise.dados_extraidos)
             status_auditoria = ultima_analise.status_auditoria
-        documentos_com_analise.append((categoria, dados, doc.status_processamento, status_auditoria))
+        if categoria in {"RG", "RG_VERSO"}:
+            partes_rg.append((dados, doc.status_processamento, status_auditoria))
+        else:
+            documentos_com_analise.append((categoria, dados, doc.status_processamento, status_auditoria))
+
+    if partes_rg:
+        dados_rg = {}
+        for dados, status_processamento, _ in partes_rg:
+            if status_processamento == "CONCLUIDO" and dados:
+                dados_rg.update(dados)
+        status_rg = "CONCLUIDO" if dados_rg and all(
+            status_processamento == "CONCLUIDO"
+            for _, status_processamento, _ in partes_rg
+        ) else "PENDENTE"
+        status_auditoria_rg = next(
+            (
+                status_auditoria
+                for _, _, status_auditoria in partes_rg
+                if status_auditoria == "POSSIVEL_DIVERGENCIA"
+            ),
+            None,
+        )
+        documentos_com_analise.append(("RG", dados_rg or None, status_rg, status_auditoria_rg))
 
     membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
 

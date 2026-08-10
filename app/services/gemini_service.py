@@ -1,7 +1,7 @@
 """Integração com a API do Gemini para extração estruturada dos documentos.
 
 Cada categoria de documento (igual ao `nome_documento` cadastrado em
-`documentos_solicitados`: CNH, RG, RESIDENCIA, HOLERITE) tem um prompt e um
+`documentos_solicitados`: CNH, RG, RG_VERSO, RESIDENCIA, HOLERITE) tem um prompt e um
 schema de resposta próprios — os campos relevantes mudam bastante entre um
 RG e um holerite. Categorias sem schema específico caem no schema genérico
 'OUTRO'.
@@ -32,6 +32,17 @@ class GeminiExtractionError(Exception):
     """Erro ao chamar a API do Gemini ou ao interpretar a resposta."""
 
 
+def lado_documento_invalido(dados_extraidos: dict, categoria: str) -> bool:
+    """Confere se o Gemini identificou o lado esperado do RG."""
+    lados_esperados = {"RG": "frente", "RG_VERSO": "verso"}
+    lado_esperado = lados_esperados.get(categoria.upper())
+    if lado_esperado is None:
+        return False
+
+    lado_identificado = str(dados_extraidos.get("lado_documento") or "").strip().lower()
+    return lado_identificado != lado_esperado
+
+
 @lru_cache(maxsize=1)
 def _get_client() -> genai.Client:
     if not settings.gemini_api_key:
@@ -59,6 +70,14 @@ _CAMPOS_COMUNS: Dict[str, Any] = {
     },
 }
 
+_CAMPOS_CHAVE_POR_CATEGORIA = {
+    "RG": ("nome", "data_nascimento", "nome_pai", "nome_mae"),
+    "RG_VERSO": ("numero_rg", "cpf"),
+    "CNH": ("nome", "numero_cnh", "cpf"),
+    "RESIDENCIA": ("nome_titular", "endereco", "data_emissao"),
+    "HOLERITE": ("nome", "cpf", "renda_bruta", "renda_liquida", "data_emissao"),
+}
+
 _INSTRUCAO_BASE = (
     "Você é um auditor documental. Analise a imagem do documento enviado e "
     "extraia SOMENTE os campos definidos no schema de resposta. Se um campo "
@@ -71,20 +90,18 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG": {
         "prompt": _INSTRUCAO_BASE
         + " O documento é a frente do RG (Registro Geral / Carteira de Identidade) brasileiro. "
-        + "Extraia apenas os campos visíveis na frente. Se algum campo não estiver legível ou não aparecer "
-        + "na imagem, retorne null, nunca invente dados.",
+        + "A frente contém principalmente dados pessoais e de filiação. Extraia somente nome, data de nascimento, "
+        + "nome do pai e nome da mãe visíveis na frente. NÃO extraia nem tente inferir CPF, número do RG, órgão "
+        + "expedidor, UF ou data de expedição; esses campos pertencem ao verso. Se algum campo não estiver legível "
+        + "ou não aparecer na imagem, retorne null, nunca invente dados.",
         "schema": {
             "type": "OBJECT",
             "properties": {
                 **_CAMPOS_COMUNS,
                 "nome": {"type": "STRING"},
                 "data_nascimento": {"type": "STRING"},
-                "filiacao": {"type": "STRING", "description": "Nome do pai e da mãe, separados por ' e '."},
-                "numero_rg": {"type": "STRING"},
-                "orgao_expedidor": {"type": "STRING"},
-                "uf": {"type": "STRING"},
-                "data_expedicao": {"type": "STRING"},
-                "cpf": {"type": "STRING"},
+                "nome_pai": {"type": "STRING"},
+                "nome_mae": {"type": "STRING"},
                 "lado_documento": {"type": "STRING", "description": "Lado do documento: frente."},
             },
             "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
@@ -93,16 +110,19 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG_VERSO": {
         "prompt": _INSTRUCAO_BASE
         + " O documento é o verso do RG (Registro Geral / Carteira de Identidade) brasileiro. "
-        + "Extraia apenas os campos visíveis no verso. Se o verso não mostrar informação relevante, "
-        + "retorne null para esse campo e não invente dados.",
+        + "Extraia somente número do RG, CPF, órgão expedidor, UF, data de expedição e informações de identificação "
+        + "que estejam visíveis no verso. NÃO extraia nomes de pai ou mãe deste lado. Se um campo não estiver legível "
+        + "ou não aparecer na imagem, retorne null, nunca invente dados.",
         "schema": {
             "type": "OBJECT",
             "properties": {
                 **_CAMPOS_COMUNS,
                 "numero_rg": {"type": "STRING"},
+                "cpf": {"type": "STRING"},
+                "orgao_expedidor": {"type": "STRING"},
+                "uf": {"type": "STRING"},
+                "data_expedicao": {"type": "STRING"},
                 "codigo_barras": {"type": "STRING"},
-                "municipio_expedicao": {"type": "STRING"},
-                "data_emissao": {"type": "STRING"},
                 "observacoes": {"type": "STRING"},
                 "lado_documento": {"type": "STRING", "description": "Lado do documento: verso."},
             },
@@ -204,14 +224,20 @@ def _parse_json_response(raw_text: str) -> dict:
         raise ValueError(f"Resposta do Gemini não é JSON válido: {exc}") from exc
 
 
+def _filtrar_campos_resposta(dados: dict, schema: dict) -> dict:
+    """Descarta campos que não pertencem ao contrato do documento."""
+    propriedades = schema.get("properties", {})
+    return {campo: dados.get(campo) for campo in propriedades if campo in dados}
+
+
 def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str) -> bool:
     """Heurística simples: se metade ou mais dos campos-chave do tipo de
     documento (os campos obrigatórios específicos, sem contar legibilidade/
     qualidade_imagem/documento_integro) vieram nulos, é provável que o
     solicitado_id não bate com o arquivo enviado — ex.: holerite no card de RG."""
-    config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
-    campos_obrigatorios = config_extracao["schema"].get("required", [])
-    campos_chave = [c for c in campos_obrigatorios if c not in _CAMPOS_COMUNS]
+    categoria = categoria.upper()
+    config_extracao = _SCHEMAS_E_PROMPTS.get(categoria, _SCHEMAS_E_PROMPTS["OUTRO"])
+    campos_chave = _CAMPOS_CHAVE_POR_CATEGORIA.get(categoria, ())
 
     if not campos_chave:
         return False
@@ -226,7 +252,7 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
     """Envia o documento pro Gemini e devolve os campos extraídos como dict.
 
     `categoria` deve bater com `documentos_solicitados.nome_documento`
-    (CNH, RESIDENCIA, HOLERITE, RG). Categorias desconhecidas caem no
+    (CNH, RESIDENCIA, HOLERITE, RG, RG_VERSO). Categorias desconhecidas caem no
     schema genérico 'OUTRO'.
 
     Levanta GeminiExtractionError em qualquer falha (leitura do arquivo,
@@ -256,7 +282,8 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
                 temperature=0.1,
             ),
         )
-        return _parse_json_response(response.text)
+        dados = _parse_json_response(response.text)
+        return _filtrar_campos_resposta(dados, config_extracao["schema"])
     except GeminiExtractionError:
         raise
     except Exception as exc:  # falhas de rede, quota, autenticação etc.
@@ -277,7 +304,8 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
                     temperature=0.1,
                 ),
             )
-            return _parse_json_response(response_fallback.text)
+            dados = _parse_json_response(response_fallback.text)
+            return _filtrar_campos_resposta(dados, config_extracao["schema"])
         except Exception as fallback_exc:
             raise GeminiExtractionError(
                 f"Falha na chamada à API do Gemini: {exc}. Fallback também falhou: {fallback_exc}"
