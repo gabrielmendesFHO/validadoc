@@ -69,11 +69,12 @@ _INSTRUCAO_BASE = (
 _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
     "RG": {
         "prompt": _INSTRUCAO_BASE
-        + " O documento é um RG (Registro Geral / Carteira de Identidade) brasileiro.",
+        + " O documento é um RG (Registro Geral / Carteira de Identidade) brasileiro. Se a imagem mostrar apenas a frente ou apenas o verso, retorne null para campos ausentes e inclua o campo 'lado' com valor 'FRENTE' ou 'VERSO'.",
         "schema": {
             "type": "OBJECT",
             "properties": {
                 **_CAMPOS_COMUNS,
+                "lado": {"type": "STRING", "description": "FRENTE ou VERSO, conforme o lado visível na imagem."},
                 "nome": {"type": "STRING"},
                 "data_nascimento": {"type": "STRING"},
                 "filiacao": {"type": "STRING", "description": "Nome do pai e da mãe, separados por ' e '."},
@@ -83,7 +84,8 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "data_expedicao": {"type": "STRING"},
                 "cpf": {"type": "STRING"},
             },
-            "required": ["nome", "numero_rg", "legibilidade", "qualidade_imagem", "documento_integro"],
+            # Tornar menos estrito: nem sempre o lado da frente traz número ou CPF.
+            "required": ["nome", "legibilidade", "qualidade_imagem", "documento_integro"],
         },
     },
     "CNH": {
