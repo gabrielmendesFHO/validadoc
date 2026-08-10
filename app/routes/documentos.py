@@ -23,7 +23,6 @@ class SolicitadoDocumentoEnum(str, Enum):
     RESIDENCIA = "RESIDENCIA"
     HOLERITE = "HOLERITE"
     RG = "RG"
-    RG_VERSO = "RG_VERSO"
 
 
 SOLICITADO_ID_POR_TIPO = {
@@ -31,7 +30,6 @@ SOLICITADO_ID_POR_TIPO = {
     SolicitadoDocumentoEnum.RESIDENCIA: 2,
     SolicitadoDocumentoEnum.HOLERITE: 3,
     SolicitadoDocumentoEnum.RG: 4,
-    SolicitadoDocumentoEnum.RG_VERSO: 5,
 }
 
 
