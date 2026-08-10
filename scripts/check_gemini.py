@@ -6,15 +6,23 @@ Este script carrega as mesmas configurações da aplicação (app.config.setting
 
 USO (PowerShell):
     cd <repo>
-    .\venv\Scripts\Activate
+    .\\venv\\Scripts\\Activate
     pip install -r requirements.txt
-    python scripts\check_gemini.py
+    python scripts\\check_gemini.py
 
 Observacao: execute este script localmente — nunca cole a chave da API em chats.
 """
-from app.config import settings
+import os
 import sys
 import json
+
+# Garantir que o diretório do projeto esteja no PYTHONPATH quando o script
+# for executado diretamente (evita ModuleNotFoundError sem precisar ativar venv)
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
+from app.config import settings
 
 try:
     from google import genai
