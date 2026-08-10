@@ -1,7 +1,12 @@
+from pathlib import Path
+
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+
+load_dotenv(ENV_FILE)
 
 class Settings(BaseSettings):
     app_name: str = "ValidaDoc API"
@@ -12,7 +17,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.6-flash"
 
     class Config:
-        env_file = ".env"
+        env_file = ENV_FILE
         env_file_encoding = "utf-8"
 
 settings = Settings()

@@ -20,7 +20,7 @@ Backend API scaffold usando FastAPI e SQLAlchemy.
 
 3. Instalar dependências:
 
-   pip install -r requirements.txt
+   pip install -r Backend/requirements.txt
 
 4. Copiar arquivo de ambiente:
 
@@ -28,9 +28,15 @@ Backend API scaffold usando FastAPI e SQLAlchemy.
 
 5. Executar o servidor de desenvolvimento:
 
+   cd Backend
    uvicorn app.main:app --reload
+
+Para executar os testes:
+
+cd Backend
+python -m unittest discover -s tests -v
 
 ## Notas
 
 - Use o arquivo `.env` para configurar sua conexão com o banco de dados.
-- O SDK do Gemini é instalado usando o pacote `google-generativeai`.
+- O SDK do Gemini é instalado usando o pacote `google-genai`.

@@ -8,6 +8,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..config import PROJECT_ROOT
 from ..db import get_db
 from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados
 from ..services.gemini_service import (
@@ -37,7 +38,7 @@ SOLICITADO_ID_POR_TIPO = {
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
-UPLOAD_DIR = "uploads/documentos"
+UPLOAD_DIR = str(PROJECT_ROOT / "uploads" / "documentos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 EXTENSOES_PERMITIDAS = (".png", ".jpg", ".jpeg", ".pdf")
