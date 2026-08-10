@@ -85,6 +85,30 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
             },
             "required": ["nome", "numero_rg", "legibilidade", "qualidade_imagem", "documento_integro"],
         },
+        "schema_frente": {
+            "type": "OBJECT",
+            "properties": {
+                **_CAMPOS_COMUNS,
+                "nome": {"type": "STRING"},
+                "data_nascimento": {"type": "STRING"},
+                "filiacao": {"type": "STRING", "description": "Nome do pai e da mãe, separados por ' e '."},
+            },
+            "required": ["nome", "legibilidade", "qualidade_imagem", "documento_integro"],
+        },
+        "schema_verso": {
+            "type": "OBJECT",
+            "properties": {
+                **_CAMPOS_COMUNS,
+                "numero_rg": {"type": "STRING"},
+                "orgao_expedidor": {"type": "STRING"},
+                "uf": {"type": "STRING"},
+                "data_expedicao": {"type": "STRING"},
+                "cpf": {"type": "STRING"},
+            },
+            "required": ["numero_rg", "cpf", "legibilidade", "qualidade_imagem", "documento_integro"],
+        },
+        "prompt_frente": _INSTRUCAO_BASE + " O documento é a FRENTE de um RG (Registro Geral). Extraia SOMENTE as informações visíveis na frente: nome completo, data de nascimento e filiação (nome dos pais).",
+        "prompt_verso": _INSTRUCAO_BASE + " O documento é o VERSO de um RG (Registro Geral). Extraia SOMENTE as informações visíveis no verso: número do RG, órgão expedidor, UF, data de expedição e CPF.",
     },
     "CNH": {
         "prompt": _INSTRUCAO_BASE
@@ -166,13 +190,29 @@ def _mime_type(caminho_arquivo: str) -> str:
     tipo, _ = mimetypes.guess_type(caminho_arquivo)
     return tipo or "application/octet-stream"
 
-def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str) -> bool:
+def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str, lado: str = None) -> bool:
     """Heurística simples: se metade ou mais dos campos-chave do tipo de
     documento (os campos obrigatórios específicos, sem contar legibilidade/
     qualidade_imagem/documento_integro) vieram nulos, é provável que o
-    solicitado_id não bate com o arquivo enviado — ex.: holerite no card de RG."""
+    solicitado_id não bate com o arquivo enviado — ex.: holerite no card de RG.
+    
+    Para RG, ajusta os campos esperados de acordo com o lado (frente/verso).
+    """
     config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
-    campos_obrigatorios = config_extracao["schema"].get("required", [])
+    
+    # Seleciona o schema correto de acordo com o lado
+    if categoria.upper() == "RG" and lado:
+        lado = lado.lower()
+        if lado == "frente":
+            schema = config_extracao.get("schema_frente", config_extracao["schema"])
+        elif lado == "verso":
+            schema = config_extracao.get("schema_verso", config_extracao["schema"])
+        else:
+            schema = config_extracao["schema"]
+    else:
+        schema = config_extracao["schema"]
+    
+    campos_obrigatorios = schema.get("required", [])
     campos_chave = [c for c in campos_obrigatorios if c not in _CAMPOS_COMUNS]
 
     if not campos_chave:
@@ -184,18 +224,38 @@ def avaliar_possivel_divergencia(dados_extraidos: dict, categoria: str) -> bool:
     )
     return (nulos / len(campos_chave)) >= 0.5
 
-def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
+def extrair_dados_documento(caminho_arquivo: str, categoria: str, lado: str = None) -> dict:
     """Envia o documento pro Gemini e devolve os campos extraídos como dict.
 
     `categoria` deve bater com `documentos_solicitados.nome_documento`
     (CNH, RESIDENCIA, HOLERITE, RG). Categorias desconhecidas caem no
     schema genérico 'OUTRO'.
+    
+    `lado` é opcional — apenas RG suporta "frente" ou "verso" pra ajustar
+    o schema e prompt dinamicamente. Pra outros documentos, é ignorado.
 
     Levanta GeminiExtractionError em qualquer falha (leitura do arquivo,
     chamada à API, resposta que não é JSON válido) — a rota decide o que
     fazer com isso (marcar status de erro, etc.), sem derrubar a aplicação.
     """
     config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
+    
+    # Se é RG e tem lado, usa o schema/prompt específico do lado
+    if categoria.upper() == "RG" and lado:
+        lado = lado.lower()
+        if lado == "frente":
+            schema = config_extracao.get("schema_frente", config_extracao["schema"])
+            prompt = config_extracao.get("prompt_frente", config_extracao["prompt"])
+        elif lado == "verso":
+            schema = config_extracao.get("schema_verso", config_extracao["schema"])
+            prompt = config_extracao.get("prompt_verso", config_extracao["prompt"])
+        else:
+            # lado inválido, usa schema padrão
+            schema = config_extracao["schema"]
+            prompt = config_extracao["prompt"]
+    else:
+        schema = config_extracao["schema"]
+        prompt = config_extracao["prompt"]
 
     try:
         with open(caminho_arquivo, "rb") as f:
@@ -209,12 +269,12 @@ def extrair_dados_documento(caminho_arquivo: str, categoria: str) -> dict:
         response = client.models.generate_content(
             model=settings.gemini_model,
             contents=[
-                config_extracao["prompt"],
+                prompt,
                 types.Part.from_bytes(data=dados_arquivo, mime_type=_mime_type(caminho_arquivo)),
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=config_extracao["schema"],
+                response_schema=schema,
                 temperature=0.1,
             ),
         )

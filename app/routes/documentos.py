@@ -26,6 +26,7 @@ async def upload_documento(
     solicitado_id: int = Form(...),
     membro_id: Optional[int] = Form(None),
     file: UploadFile = File(...),
+    lado: Optional[str] = Form(None),  # "frente" ou "verso" para documentos com dois lados
     db: Session = Depends(get_db),
 ):
     # 1. Validação de extensão
@@ -77,11 +78,11 @@ async def upload_documento(
     # 6. Extração via Gemini
     dados_extraidos = None
     try:
-        dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento)
+        dados_extraidos = extrair_dados_documento(caminho_para_ia, solicitado.nome_documento, lado=lado)
         novo_documento.status_processamento = "CONCLUIDO"
 
         status_auditoria = "EXTRAIDO"
-        if avaliar_possivel_divergencia(dados_extraidos, solicitado.nome_documento):
+        if avaliar_possivel_divergencia(dados_extraidos, solicitado.nome_documento, lado=lado):
             status_auditoria = "POSSIVEL_DIVERGENCIA"
 
         analise = AnalisesOcr(
