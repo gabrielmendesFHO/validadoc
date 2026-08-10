@@ -1,20 +1,15 @@
 """Pré-processamento de imagem.
 
-Duas funções, dois propósitos diferentes — não são intercambiáveis:
+O pipeline prepara imagens para análise multimodal:
 
 - preparar_para_ia_multimodal: correção geométrica leve (deskew) + realce de
   contraste, mantendo COR. É o que vai pro Gemini. Modelos multimodais leem
   layout, sombras, carimbos e marcas d'água — informação que se perde se a
   imagem virar preto-e-branco puro.
 
-- binarizar_para_ocr_tradicional: pipeline agressivo (grayscale + threshold
-  adaptativo). Só serve pra alimentar OCR tradicional (Tesseract), como no
-  comparativo da seção 4.4 do TCC. NÃO é usada no pipeline principal.
-
-Nenhuma das duas sobrescreve o arquivo original — cada uma grava uma cópia
-nova ao lado do arquivo de entrada (sufixo _prep ou _bin).
+Nenhuma das duas sobrescreve o arquivo original — a cópia processada é gravada
+ao lado do arquivo de entrada com o sufixo _prep.
 """
-from typing import Optional
 import os
 
 import cv2
@@ -81,37 +76,3 @@ def preparar_para_ia_multimodal(caminho_arquivo: str) -> str:
     caminho_saida = f"{base}_prep{ext}"
     cv2.imwrite(caminho_saida, img)
     return caminho_saida
-
-
-# def binarizar_para_ocr_tradicional(caminho_arquivo: str) -> Optional[str]:
-#     """Pipeline agressivo (grayscale + threshold adaptativo).
-
-#     Uso exclusivo para comparativos com OCR tradicional (Tesseract). Não
-#     chamar essa função no pipeline principal de extração com Gemini.
-#     """
-#     if _extensao(caminho_arquivo) not in EXTENSOES_IMAGEM:
-#         return None
-
-#     img = cv2.imread(caminho_arquivo)
-#     if img is None:
-#         return None
-
-#     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-#     angle = _calcular_angulo_deskew(gray)
-#     if abs(angle) > 0.5:
-#         gray = _rotacionar(gray, angle)
-
-#     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-#     processada = cv2.adaptiveThreshold(
-#         blur,
-#         255,
-#         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-#         cv2.THRESH_BINARY,
-#         21,
-#         10,
-#     )
-
-#     base, ext = os.path.splitext(caminho_arquivo)
-#     caminho_saida = f"{base}_bin{ext}"
-#     cv2.imwrite(caminho_saida, processada)
-#     return caminho_saida
