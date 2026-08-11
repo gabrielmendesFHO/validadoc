@@ -7,6 +7,7 @@ google-genai
 opencv-python-headless
 pillow
 python-jose[cryptography]
-passlib[bcrypt]
+pwdlib[argon2,bcrypt]
 pydantic-settings
 python-multipart
+email-validator

@@ -45,7 +45,7 @@ def _normalizar_nome(nome):
 
 def _valor_para_float(valor, default=0.0):
     if valor is None or valor == "":
-        return float(default)
+        return default
 
     if isinstance(valor, Decimal):
         return float(valor)
@@ -54,19 +54,18 @@ def _valor_para_float(valor, default=0.0):
     if isinstance(valor, str):
         texto = valor.strip()
         if not texto:
-            return float(default)
+            return default
         texto = texto.replace("R$", "").replace(" ", "")
         texto = texto.replace(".", "").replace(",", ".")
         try:
             return float(texto)
         except ValueError:
-            return float(default)
+            return default
 
     try:
         return float(valor)
     except (TypeError, ValueError, InvalidOperation):
-        return float(default)
-
+        return default
 
 def auditar_inscricao(candidato, documentos_com_analise, membros_familia, processo) -> ResultadoAuditoria:
     """

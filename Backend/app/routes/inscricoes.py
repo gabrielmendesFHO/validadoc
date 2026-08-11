@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from ..dependencies import exigir_perfil
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -46,7 +47,11 @@ def listar_membros(inscricao_id: int, db: Session = Depends(get_db)):
     return inscricao.membros_familia
 
 @router.post("/{inscricao_id}/auditar")
-def auditar_inscricao_endpoint(inscricao_id: int, db: Session = Depends(get_db)):
+def auditar_inscricao_endpoint(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")

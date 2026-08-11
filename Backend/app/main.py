@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from .routes import documentos, inscricoes
-
+from .routes import auth, documentos, inscricoes
 
 from .config import settings
 from .db import (
@@ -13,6 +13,16 @@ from .db import (
 )
 
 app = FastAPI(title=settings.app_name)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # porta padrão do Vite em dev
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router)
 app.include_router(documentos.router)
 app.include_router(inscricoes.router)
 
