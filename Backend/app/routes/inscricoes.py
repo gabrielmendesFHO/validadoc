@@ -2,7 +2,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from ..dependencies import exigir_perfil
+from ..dependencies import exigir_perfil, get_current_user, usuario_pode_acessar_inscricao
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -27,10 +27,17 @@ class MembroFamiliaIn(BaseModel):
 
 
 @router.post("/{inscricao_id}/membros")
-def adicionar_membro(inscricao_id: int, membro: MembroFamiliaIn, db: Session = Depends(get_db)):
+def adicionar_membro(
+    inscricao_id: int,
+    membro: MembroFamiliaIn,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if not usuario_pode_acessar_inscricao(usuario, inscricao):
+        raise HTTPException(status_code=403, detail="Você não pode acessar esta inscrição.")
 
     novo_membro = MembrosFamilia(inscricao_id=inscricao_id, **membro.model_dump())
     db.add(novo_membro)
@@ -40,10 +47,16 @@ def adicionar_membro(inscricao_id: int, membro: MembroFamiliaIn, db: Session = D
 
 
 @router.get("/{inscricao_id}/membros")
-def listar_membros(inscricao_id: int, db: Session = Depends(get_db)):
+def listar_membros(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if not usuario_pode_acessar_inscricao(usuario, inscricao):
+        raise HTTPException(status_code=403, detail="Você não pode acessar esta inscrição.")
     return inscricao.membros_familia
 
 @router.post("/{inscricao_id}/auditar")

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .routes import auth, documentos, inscricoes
 
 from .config import settings
+from .dependencies import exigir_perfil
 from .db import (
     compare_models_to_db,
     get_db,
@@ -33,12 +34,16 @@ def read_root():
 
 
 @app.get("/tables")
-def list_tables():
+def list_tables(_usuario=Depends(exigir_perfil("ANALISTA", "ADMIN"))):
     return {"tables": get_table_names()}
 
 
 @app.get("/tables/{table_name}/sample")
-def table_sample(table_name: str, db: Session = Depends(get_db)):
+def table_sample(
+    table_name: str,
+    db: Session = Depends(get_db),
+    _usuario=Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
     model = get_reflected_class(table_name)
     if model is None:
         raise HTTPException(status_code=404, detail="Table not found")
@@ -48,5 +53,5 @@ def table_sample(table_name: str, db: Session = Depends(get_db)):
 
 
 @app.get("/schema/verify")
-def verify_schema():
+def verify_schema(_usuario=Depends(exigir_perfil("ANALISTA", "ADMIN"))):
     return compare_models_to_db()

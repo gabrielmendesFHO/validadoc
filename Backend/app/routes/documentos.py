@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from ..config import PROJECT_ROOT
 from ..db import get_db
-from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados
+from ..dependencies import get_current_user, usuario_pode_acessar_inscricao
+from ..models import AnalisesOcr, DocumentosEnviados, DocumentosSolicitados, Inscricoes, Usuarios
 from ..services.gemini_service import (
     GeminiExtractionError,
     avaliar_possivel_divergencia,
@@ -51,6 +52,7 @@ async def upload_documento(
     membro_id: Optional[int] = Form(None),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
 ):
     solicitado_id_numero = SOLICITADO_ID_POR_TIPO[solicitado_id]
     # 1. Validação de extensão
@@ -62,6 +64,12 @@ async def upload_documento(
     solicitado = db.get(DocumentosSolicitados, solicitado_id_numero)
     if solicitado is None:
         raise HTTPException(status_code=400, detail="solicitado_id não encontrado.")
+
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if not usuario_pode_acessar_inscricao(usuario, inscricao):
+        raise HTTPException(status_code=403, detail="Você não pode acessar esta inscrição.")
 
     # 3. Salva o arquivo original no disco (nunca é sobrescrito depois)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")

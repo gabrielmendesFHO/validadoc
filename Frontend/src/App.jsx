@@ -1,17 +1,26 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
-
-function Dashboard() {
-  const usuario = JSON.parse(localStorage.getItem("usuario") || "null");
-  return <h1>Bem-vindo, {usuario?.nome_completo}</h1>;
-}
+import Dashboard from "./pages/Dashboard";
+import UploadDocumento from "./pages/UploadDocumento";
+import Auditoria from "./pages/Auditoria";
 
 function RotaProtegida({ children }) {
   const token = localStorage.getItem("access_token");
   return token ? children : <Navigate to="/login" replace />;
 }
 
+function usuarioAtual() {
+  return JSON.parse(localStorage.getItem("usuario") || "null");
+}
+
+function logout() {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("usuario");
+  window.location.assign("/login");
+}
+
 export default function App() {
+  const usuario = usuarioAtual();
   return (
     <BrowserRouter>
       <Routes>
@@ -20,10 +29,12 @@ export default function App() {
           path="/dashboard"
           element={
             <RotaProtegida>
-              <Dashboard />
+              <Dashboard usuario={usuario} onLogout={logout} />
             </RotaProtegida>
           }
         />
+        <Route path="/upload" element={<RotaProtegida><UploadDocumento usuario={usuario} onLogout={logout} /></RotaProtegida>} />
+        <Route path="/auditoria/:inscricaoId" element={<RotaProtegida><Auditoria usuario={usuario} onLogout={logout} /></RotaProtegida>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

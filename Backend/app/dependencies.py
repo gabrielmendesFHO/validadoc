@@ -25,7 +25,10 @@ def get_current_user(token: str = Depends(_oauth2_scheme), db: Session = Depends
     if usuario_id is None:
         raise credenciais_invalidas
 
-    usuario = db.get(Usuarios, int(usuario_id))
+    try:
+        usuario = db.get(Usuarios, int(usuario_id))
+    except (TypeError, ValueError):
+        raise credenciais_invalidas
     if usuario is None:
         raise credenciais_invalidas
 
@@ -44,3 +47,10 @@ def exigir_perfil(*perfis_permitidos: str):
         return usuario
 
     return _checar
+
+
+def usuario_pode_acessar_inscricao(usuario: Usuarios, inscricao) -> bool:
+    """Candidatos acessam a própria inscrição; equipe acessa as inscrições."""
+    if usuario.perfil in {"ANALISTA", "ADMIN"}:
+        return True
+    return usuario.id == inscricao.candidato_id
