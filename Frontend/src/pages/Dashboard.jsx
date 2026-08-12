@@ -1,8 +1,35 @@
 import { useState } from "react";
-import { FileCheck2, FileUp, LogOut, Search, ShieldCheck } from "lucide-react";
+import { FileUp, LogOut, Search, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import "./Dashboard.css";
 
-export default function Dashboard({ usuario, onLogout }) {
+// Dados de exemplo — troque por dados vindos da sua API quando estiver pronta.
+const MOCK_STATS = {
+  ultimasValidacoesHoje: 4,
+  statusGeral: { label: "Aprovado", percent: 72 },
+  totalValidacoes: 1234,
+};
+
+const MOCK_HISTORICO = [
+  { id: 1, data: "27/11/2025", hora: "11:35", tipo: "RG", resultado: "Aprovado" },
+  { id: 2, data: "26/11/2025", hora: "15:23", tipo: "CPF", resultado: "Rejeitado" },
+];
+
+function Badge({ resultado }) {
+  const isAprovado = resultado === "Aprovado";
+  return (
+    <span className={`status-badge ${isAprovado ? "status-approved" : "status-rejected"}`}>
+      {resultado}
+    </span>
+  );
+}
+
+export default function Dashboard({
+  usuario,
+  onLogout,
+  stats = MOCK_STATS,
+  historico = MOCK_HISTORICO,
+}) {
   const navigate = useNavigate();
   const [inscricaoId, setInscricaoId] = useState("");
 
@@ -11,56 +38,102 @@ export default function Dashboard({ usuario, onLogout }) {
     if (inscricaoId.trim()) navigate(`/auditoria/${inscricaoId.trim()}`);
   }
 
+  const primeiroNome = usuario?.nome_completo?.split(" ")[0] || "User";
+  const podeConsultar = usuario?.perfil !== "CANDIDATO";
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="dash-shell">
+      <header className="dash-topbar">
         <div className="brand-lockup">
-          <div className="brand-mark"><ShieldCheck size={20} /></div>
-          <div><strong>ValidaDoc</strong><span>Centro de validação documental</span></div>
+          <div className="brand-mark">
+            <ShieldCheck size={18} />
+          </div>
+          <strong>ValidaDoc</strong>
         </div>
-        <div className="topbar-user">
-          <span>{usuario?.nome_completo}</span>
-          <button className="icon-button" onClick={onLogout} title="Sair"><LogOut size={17} /></button>
-        </div>
+        <button className="icon-button" onClick={onLogout} title="Sair">
+          <LogOut size={17} />
+        </button>
       </header>
 
-      <section className="page-content">
-        <div className="page-heading">
+      <section className="dash-card">
+        <div className="dash-heading">
           <div>
-            <p className="eyebrow">Visão operacional</p>
-            <h1>Dashboard analítico</h1>
-            <p className="muted">Acompanhe documentos e pareceres do processo seletivo.</p>
+            <h1>Bem-vindo, {primeiroNome}</h1>
+            <p className="muted">Inicie uma validação ou confira o histórico.</p>
           </div>
-          <button className="primary-button" onClick={() => navigate("/upload")}><FileUp size={17} /> Analisar documento</button>
+          <button className="primary-button" onClick={() => navigate("/upload")}>
+            <FileUp size={16} /> Validar documento
+          </button>
         </div>
 
-        <div className="metric-grid">
-          <article className="metric-card"><span>Perfil conectado</span><strong>{usuario?.perfil || "CANDIDATO"}</strong><small>Acesso autenticado</small></article>
-          <article className="metric-card accent-blue"><span>Pipeline</span><strong>Ativo</strong><small>Gemini + regras de negócio</small></article>
-          <article className="metric-card accent-green"><span>Auditoria</span><strong>Pronta</strong><small>Parecer consolidado disponível</small></article>
+        <div className="summary-grid">
+          <article className="summary-card">
+            <span className="summary-title">Últimas validações</span>
+            <p className="muted small">Visualize resultados recentes.</p>
+            <p className="summary-line">
+              Hoje: <strong>{stats.ultimasValidacoesHoje}</strong>
+            </p>
+          </article>
+
+          <article className="summary-card">
+            <span className="summary-title">Status Geral</span>
+            <div className="summary-status-row">
+              <span className="status-badge status-approved">{stats.statusGeral.label}</span>
+              <strong>{stats.statusGeral.percent}%</strong>
+            </div>
+          </article>
+
+          <article className="summary-card">
+            <span className="summary-title">Contagem</span>
+            <p className="summary-line">
+              Validações Totais: <strong>{stats.totalValidacoes}</strong>
+            </p>
+          </article>
         </div>
 
-        <div className="workspace-grid">
-          <section className="panel intro-panel">
-            <div className="panel-icon"><FileCheck2 size={22} /></div>
-            <p className="eyebrow">Fluxo principal</p>
-            <h2>Valide um documento com rastreabilidade</h2>
-            <p className="muted">Envie RG, comprovante de residência ou holerite. O sistema processa o arquivo e registra a análise no banco.</p>
-            <button className="secondary-button" onClick={() => navigate("/upload")}>Abrir envio <FileUp size={16} /></button>
-          </section>
+        {podeConsultar && (
+          <form className="inline-search" onSubmit={abrirAuditoria}>
+            <label htmlFor="inscricao-id">Consultar parecer por inscrição</label>
+            <div className="input-action">
+              <input
+                id="inscricao-id"
+                value={inscricaoId}
+                onChange={(event) => setInscricaoId(event.target.value)}
+                placeholder="Ex.: 3"
+                inputMode="numeric"
+                required
+              />
+              <button className="icon-button" type="submit" title="Consultar">
+                <Search size={16} />
+              </button>
+            </div>
+          </form>
+        )}
 
-          {usuario?.perfil !== "CANDIDATO" && (
-            <section className="panel">
-              <p className="eyebrow">Área de análise</p>
-              <h2>Consultar parecer</h2>
-              <p className="muted">Informe o número da inscrição para abrir o resultado consolidado.</p>
-              <form className="inline-form" onSubmit={abrirAuditoria}>
-                <label htmlFor="inscricao-id">Inscrição</label>
-                <div className="input-action"><input id="inscricao-id" value={inscricaoId} onChange={(event) => setInscricaoId(event.target.value)} placeholder="Ex.: 3" inputMode="numeric" required /><button className="primary-button" title="Consultar"><Search size={17} /></button></div>
-              </form>
-            </section>
-          )}
-        </div>
+        <h2 className="section-title">Histórico Recente</h2>
+
+        <table className="history-table">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Resultado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historico.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  {item.data} {item.hora}
+                </td>
+                <td>{item.tipo}</td>
+                <td>
+                  <Badge resultado={item.resultado} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
     </main>
   );
