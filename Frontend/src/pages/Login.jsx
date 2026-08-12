@@ -1,3 +1,4 @@
+import { ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
@@ -30,34 +31,45 @@ export default function Login() {
   }
 
   return (
-    <div style={{ maxWidth: 360, margin: "80px auto" }}>
-      <h1>ValidaDoc</h1>
-      <p>Entre com suas credenciais para validar documentos.</p>
-
-      <form onSubmit={handleSubmit}>
-        <div>
-          <label>E-mail</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>Senha</label>
-          <input
-            type="password"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            required
-          />
+    <main className="auth-shell">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="brand-mark">
+            <ShieldCheck size={20} />
+          </div>
+          <strong>ValidaDoc</strong>
         </div>
 
-        {erro && <p style={{ color: "red" }}>{erro}</p>}
+        <h1>Acesso ao sistema</h1>
+        <p className="muted">Entre com suas credenciais para validar documentos.</p>
 
-        <button type="submit">Entrar</button>
-      </form>
-    </div>
+        <form onSubmit={handleSubmit}>
+          <label className="auth-field">
+            E-mail
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </label>
+          <label className="auth-field">
+            Senha
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              required
+            />
+          </label>
+
+          {erro && <div className="alert error-alert">{erro}</div>}
+
+          <button className="primary-button wide-button" type="submit">
+            Entrar
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }
