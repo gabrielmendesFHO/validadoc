@@ -2,10 +2,10 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from ..dependencies import exigir_perfil, get_current_user, usuario_pode_acessar_inscricao
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..dependencies import exigir_perfil, get_current_user
 from ..models import (
     AnalisesOcr,
     DocumentosEnviados,
@@ -19,6 +19,19 @@ from ..services.regras_negocio import auditar_inscricao
 
 router = APIRouter(prefix="/inscricoes", tags=["Inscrições"])
 
+# Documentos que representam lados diferentes do mesmo documento físico —
+# a tela de checklist mostra isso como um card só (Documento de Identidade).
+GRUPOS_IDENTIDADE = {"RG", "RG_VERSO"}
+ROTULOS_IDENTIDADE = {"RG": "Frente", "RG_VERSO": "Verso"}
+
+TITULOS_CHECKLIST = {
+    "IDENTIDADE": ("Documento de Identidade", "Formatos: PDF, JPG, PNG"),
+    "RESIDENCIA": ("Comprovativo de Morada", "Água, Luz ou Telefone (Máx. 3 meses)"),
+    "HOLERITE": ("Comprovativo de Rendimentos", "Últimos 3 meses"),
+    "CNH": ("CNH", "Formatos: PDF, JPG, PNG"),
+    "OUTRO": ("Outro documento", None),
+}
+
 
 class MembroFamiliaIn(BaseModel):
     nome_completo: str
@@ -26,18 +39,113 @@ class MembroFamiliaIn(BaseModel):
     renda_declarada: float | None = None
 
 
-@router.post("/{inscricao_id}/membros")
-def adicionar_membro(
+@router.get("/minha")
+def minha_inscricao(
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+):
+    """Devolve a inscrição mais recente do candidato logado — cria uma nova
+    (no processo de bolsa mais recente) se ele ainda não tiver nenhuma."""
+    inscricao = (
+        db.query(Inscricoes)
+        .filter_by(candidato_id=usuario.id)
+        .order_by(Inscricoes.id.desc())
+        .first()
+    )
+    if inscricao is not None:
+        return {"id": inscricao.id, "processo_id": inscricao.processo_id, "status_geral": inscricao.status_geral}
+
+    processo = db.query(ProcessosBolsa).order_by(ProcessosBolsa.id.desc()).first()
+    if processo is None:
+        raise HTTPException(status_code=404, detail="Nenhum processo de bolsa cadastrado ainda.")
+
+    nova_inscricao = Inscricoes(processo_id=processo.id, candidato_id=usuario.id, status_geral="PENDENTE")
+    db.add(nova_inscricao)
+    db.commit()
+    db.refresh(nova_inscricao)
+    return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral}
+
+
+@router.get("/{inscricao_id}/checklist")
+def checklist_documentos(
     inscricao_id: int,
-    membro: MembroFamiliaIn,
     db: Session = Depends(get_db),
     usuario: Usuarios = Depends(get_current_user),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
-    if not usuario_pode_acessar_inscricao(usuario, inscricao):
-        raise HTTPException(status_code=403, detail="Você não pode acessar esta inscrição.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+
+    solicitados = (
+        db.query(DocumentosSolicitados)
+        .filter_by(processo_id=inscricao.processo_id)
+        .order_by(DocumentosSolicitados.id)
+        .all()
+    )
+    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
+
+    ultimo_por_solicitado = {}
+    for doc in enviados:
+        anterior = ultimo_por_solicitado.get(doc.solicitado_id)
+        if anterior is None or doc.criado_em >= anterior.criado_em:
+            ultimo_por_solicitado[doc.solicitado_id] = doc
+
+    def status_do_item(solicitado_id):
+        doc = ultimo_por_solicitado.get(solicitado_id)
+        if doc is None:
+            return "PENDENTE", None
+        if doc.status_processamento == "CONCLUIDO":
+            return "ENVIADO", doc.id
+        return "PENDENTE", doc.id
+
+    grupos, ordem = {}, []
+    for solicitado in solicitados:
+        nome = solicitado.nome_documento
+        chave = "IDENTIDADE" if nome in GRUPOS_IDENTIDADE else nome
+
+        if chave not in grupos:
+            grupos[chave] = []
+            ordem.append(chave)
+
+        status, documento_id = status_do_item(solicitado.id)
+        rotulo = ROTULOS_IDENTIDADE.get(nome) if chave == "IDENTIDADE" else None
+        grupos[chave].append(
+            {
+                "solicitado_id": solicitado.id,
+                "nome_documento": nome,
+                "rotulo": rotulo,
+                "obrigatorio": bool(solicitado.obrigatorio),
+                "status": status,
+                "documento_id": documento_id,
+            }
+        )
+
+    resultado = []
+    for chave in ordem:
+        itens = grupos[chave]
+        titulo, descricao_padrao = TITULOS_CHECKLIST.get(chave, (chave.title(), None))
+        status_geral_item = "ENVIADO" if all(item["status"] == "ENVIADO" for item in itens) else "PENDENTE"
+        resultado.append(
+            {
+                "chave": chave,
+                "titulo": titulo,
+                "descricao": descricao_padrao,
+                "status": status_geral_item,
+                "obrigatorio": any(item["obrigatorio"] for item in itens),
+                "itens": itens,
+            }
+        )
+
+    return resultado
+
+
+@router.post("/{inscricao_id}/membros")
+def adicionar_membro(inscricao_id: int, membro: MembroFamiliaIn, db: Session = Depends(get_db)):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
 
     novo_membro = MembrosFamilia(inscricao_id=inscricao_id, **membro.model_dump())
     db.add(novo_membro)
@@ -47,17 +155,12 @@ def adicionar_membro(
 
 
 @router.get("/{inscricao_id}/membros")
-def listar_membros(
-    inscricao_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
-):
+def listar_membros(inscricao_id: int, db: Session = Depends(get_db)):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
-    if not usuario_pode_acessar_inscricao(usuario, inscricao):
-        raise HTTPException(status_code=403, detail="Você não pode acessar esta inscrição.")
     return inscricao.membros_familia
+
 
 @router.post("/{inscricao_id}/auditar")
 def auditar_inscricao_endpoint(

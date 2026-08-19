@@ -649,3 +649,318 @@
   font-weight: 600;
   color: var(--text-h);
 }
+/* ==========================================================================
+   Telas redesenhadas a partir do Figma — usam um azul próprio (--brand-blue),
+   diferente do roxo (--accent) usado no Dashboard/Auditoria/Upload antigos.
+   Quando essas duas telas também forem redesenhadas, dá pra unificar tudo
+   num só accent — por enquanto ficam separados de propósito, pra não mudar
+   a cor de telas que você ainda não aprovou.
+   ========================================================================== */
+
+:root {
+  --brand-blue: #2f6fed;
+  --brand-blue-bg: rgba(47, 111, 237, 0.08);
+  --brand-blue-dark: #1f56c9;
+}
+
+/* ---------- Login (split card, VOCR'S) ---------- */
+
+.auth-shell {
+  min-height: 100svh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  padding: 24px;
+  text-align: left;
+}
+
+.auth-card--split {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  width: 100%;
+  max-width: 920px;
+  background: #fff;
+  border: 1px solid #e7e7ec;
+  border-radius: 22px;
+  box-shadow: 0 20px 45px -20px rgba(20, 20, 40, 0.12);
+  overflow: hidden;
+}
+
+.auth-form-col {
+  padding: 44px 48px;
+}
+
+.auth-wordmark {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--brand-blue);
+  margin: 0 0 22px;
+  letter-spacing: -0.3px;
+}
+
+.auth-form-col h1 {
+  font-size: 26px;
+  margin: 0 0 8px;
+}
+
+.auth-form-col > p.muted {
+  margin-bottom: 30px;
+}
+
+.auth-underline-field {
+  margin-bottom: 22px;
+}
+
+.auth-underline-field input {
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px solid #dcdce2;
+  background: transparent;
+  padding: 8px 2px;
+  font-size: 14px;
+  color: var(--text-h);
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.auth-underline-field input::placeholder {
+  text-transform: uppercase;
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  color: #9a9aa5;
+}
+
+.auth-underline-field input:focus {
+  outline: none;
+  border-bottom-color: var(--brand-blue);
+}
+
+.auth-forgot {
+  display: inline-block;
+  font-size: 12.5px;
+  color: var(--brand-blue);
+  text-decoration: none;
+  margin-bottom: 20px;
+}
+
+.auth-forgot:hover {
+  text-decoration: underline;
+}
+
+.auth-submit {
+  width: 100%;
+  background: var(--brand-blue);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.auth-submit:hover {
+  background: var(--brand-blue-dark);
+}
+
+.auth-info-col {
+  background: #eef1f6;
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 20px 20px 20px 0;
+  border-radius: 16px;
+}
+
+.auth-info-col h2 {
+  font-size: 19px;
+  margin: 0 0 14px;
+}
+
+.auth-info-col p {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.6;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .auth-card--split {
+    grid-template-columns: 1fr;
+  }
+  .auth-info-col {
+    margin: 0 20px 20px;
+  }
+}
+
+/* ---------- Upload (checklist) ---------- */
+
+.checklist-card {
+  width: 100%;
+  max-width: 880px;
+  margin: 48px auto;
+  background: #fff;
+  border: 1px solid #e7e7ec;
+  border-radius: 22px;
+  padding: 36px 40px;
+  box-shadow: 0 20px 45px -25px rgba(20, 20, 40, 0.12);
+}
+
+.checklist-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.checklist-header h1 {
+  font-size: 26px;
+  margin: 0 0 6px;
+}
+
+.btn-outline-dark {
+  background: #fff;
+  border: 1.5px solid var(--text-h);
+  color: var(--text-h);
+  border-radius: 10px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-outline-dark:hover {
+  background: #f3f3f5;
+}
+
+.checklist-frame {
+  border: 1.5px dashed #d5d5dd;
+  border-radius: 14px;
+  padding: 4px 18px;
+}
+
+.checklist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 4px;
+  border-bottom: 1.5px dashed #e2e2e8;
+}
+
+.checklist-row:last-child {
+  border-bottom: none;
+}
+
+.checklist-row-info h2 {
+  font-size: 19px;
+  margin: 0 0 4px;
+}
+
+.checklist-row-info p {
+  font-size: 13.5px;
+  color: var(--text);
+  margin: 0;
+}
+
+.checklist-row-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1.5px solid transparent;
+  white-space: nowrap;
+}
+
+.badge-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--success);
+}
+
+.badge-pending {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.btn-outline-blue,
+.btn-solid-blue {
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.btn-outline-blue {
+  background: #fff;
+  border: 1.5px solid var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.btn-outline-blue:hover {
+  background: var(--brand-blue-bg);
+}
+
+.btn-solid-blue {
+  background: var(--brand-blue);
+  border: 1.5px solid var(--brand-blue);
+  color: #fff;
+}
+
+.btn-solid-blue:hover {
+  background: var(--brand-blue-dark);
+}
+
+.btn-solid-blue:disabled,
+.btn-outline-blue:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.checklist-subitens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist-subitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sub-rotulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.checklist-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 28px;
+}

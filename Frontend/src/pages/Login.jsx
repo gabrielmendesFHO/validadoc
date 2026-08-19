@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
-import "./Login.css";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -32,52 +31,45 @@ export default function Login() {
 
   return (
     <main className="auth-shell">
-      <div className="auth-card">
-        {/* Left column: form */}
-        <div className="auth-form-panel">
-          <div className="auth-brand">VOCR'S</div>
-
+      <div className="auth-card auth-card--split">
+        <div className="auth-form-col">
+          <p className="auth-wordmark">VOCR'S</p>
           <h1>Acesso ao sistema</h1>
-          <p className="muted">
-            Entre com suas credenciais para validar documentos.
-          </p>
+          <p className="muted">Entre com suas credenciais para validar documentos.</p>
 
           <form onSubmit={handleSubmit}>
-            <input
-              className="auth-input"
-              type="email"
-              placeholder="Digite seu e-mail"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              className="auth-input"
-              type="password"
-              placeholder="Digite sua senha"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              required
-            />
+            <div className="auth-underline-field">
+              <input
+                type="email"
+                placeholder="Digite seu e-mail"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="auth-underline-field">
+              <input
+                type="password"
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                required
+              />
+            </div>
 
-            <button
-              type="button"
-              className="forgot-password-link"
-              onClick={() => navigate("/esqueci-senha")}
-            >
+            <a className="auth-forgot" href="#esqueci-senha">
               Esqueci minha senha
-            </button>
+            </a>
 
             {erro && <div className="alert error-alert">{erro}</div>}
 
-            <button className="primary-button" type="submit">
+            <button className="auth-submit" type="submit">
               Entrar
             </button>
           </form>
         </div>
 
-        {/* Right column: info panel */}
-        <aside className="auth-info-panel">
+        <aside className="auth-info-col">
           <h2>Análise automatizada de documentos</h2>
           <p>
             Valide recibos de vencimento, comprovativos e documentos de

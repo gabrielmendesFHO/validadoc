@@ -1,63 +1,169 @@
-import { ArrowLeft, CheckCircle2, FileUp, LoaderCircle, LogOut, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 
-const TIPOS = [
-  ["RG", "RG frente"],
-  ["RG_VERSO", "RG verso"],
-  ["RESIDENCIA", "Residência"],
-  ["HOLERITE", "Holerite"],
-  ["CNH", "CNH"],
-];
-
-export default function UploadDocumento({ usuario, onLogout }) {
+export default function UploadDocumento({ usuario }) {
   const navigate = useNavigate();
-  const [inscricaoId, setInscricaoId] = useState("");
-  const [tipo, setTipo] = useState("RG");
-  const [arquivo, setArquivo] = useState(null);
-  const [resultado, setResultado] = useState(null);
+  const [inscricaoId, setInscricaoId] = useState(null);
+  const [checklist, setChecklist] = useState([]);
+  const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-  const [enviando, setEnviando] = useState(false);
+  const [enviandoChave, setEnviandoChave] = useState(null);
+  const inputRefs = useRef({});
 
-  async function enviar(event) {
-    event.preventDefault();
-    if (!arquivo) return setErro("Selecione um arquivo antes de enviar.");
-    setErro("");
-    setResultado(null);
-    setEnviando(true);
+  async function carregarChecklist(id) {
     try {
-      const formData = new FormData();
-      formData.append("inscricao_id", inscricaoId);
-      formData.append("solicitado_id", tipo);
-      formData.append("file", arquivo);
-      const { data } = await api.post("/documentos/upload", formData);
-      setResultado(data);
-    } catch (error) {
-      setErro(error.response?.data?.detail || "Não foi possível processar o documento.");
+      const { data } = await api.get(`/inscricoes/${id}/checklist`);
+      setChecklist(data);
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível carregar os documentos.");
     } finally {
-      setEnviando(false);
+      setCarregando(false);
     }
   }
 
-  return <main className="app-shell">
-    <header className="topbar">
-      <div className="brand-lockup"><div className="brand-mark"><ShieldCheck size={20} /></div><div><strong>ValidaDoc</strong><span>Envio seguro de documentos</span></div></div>
-      <div className="topbar-user"><span>{usuario?.nome_completo}</span><button className="icon-button" onClick={onLogout} title="Sair"><LogOut size={17} /></button></div>
-    </header>
-    <section className="page-content narrow-content">
-      <button className="back-button" onClick={() => navigate("/dashboard")}><ArrowLeft size={16} /> Dashboard</button>
-      <div className="page-heading"><div><p className="eyebrow">Análise documental</p><h1>Enviar documento</h1><p className="muted">O arquivo será pré-processado e analisado pela inteligência documental.</p></div></div>
-      <form className="panel upload-panel" onSubmit={enviar}>
-        <div className="form-grid">
-          <label>Inscrição<input value={inscricaoId} onChange={(event) => setInscricaoId(event.target.value)} placeholder="Número da inscrição" inputMode="numeric" required /></label>
-          <label>Tipo de documento<select value={tipo} onChange={(event) => setTipo(event.target.value)}>{TIPOS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+  useEffect(() => {
+    async function iniciar() {
+      try {
+        const { data } = await api.get("/inscricoes/minha");
+        setInscricaoId(data.id);
+        await carregarChecklist(data.id);
+      } catch (err) {
+        setErro(err.response?.data?.detail || "Não foi possível carregar sua inscrição.");
+        setCarregando(false);
+      }
+    }
+    iniciar();
+  }, []);
+
+  function abrirSeletor(solicitadoId) {
+    inputRefs.current[solicitadoId]?.click();
+  }
+
+  async function enviarArquivo(solicitadoId, chaveEnvio, file) {
+    if (!file) return;
+    setErro("");
+    setEnviandoChave(chaveEnvio);
+    try {
+      const formData = new FormData();
+      formData.append("inscricao_id", inscricaoId);
+      formData.append("solicitado_id", solicitadoId);
+      formData.append("file", file);
+      await api.post("/documentos/upload", formData);
+      await carregarChecklist(inscricaoId);
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível enviar o documento.");
+    } finally {
+      setEnviandoChave(null);
+    }
+  }
+
+  const tudoEnviado =
+    checklist.length > 0 &&
+    checklist.every((grupo) => !grupo.obrigatorio || grupo.status === "ENVIADO");
+
+  return (
+    <main className="app-shell">
+      <section className="page-content">
+        <div className="checklist-card">
+          <div className="checklist-header">
+            <div>
+              <h1>Envio de Documentos</h1>
+              <p className="muted">Candidato: {usuario?.nome_completo || "—"}</p>
+            </div>
+            <button className="btn-outline-dark" onClick={() => navigate("/dashboard")}>
+              Voltar
+            </button>
+          </div>
+
+          {erro && <div className="alert error-alert">{erro}</div>}
+
+          {carregando ? (
+            <div className="loading-state">Carregando documentos...</div>
+          ) : (
+            <div className="checklist-frame">
+              {checklist.map((grupo) => (
+                <div className="checklist-row" key={grupo.chave}>
+                  <div className="checklist-row-info">
+                    <h2>{grupo.titulo}</h2>
+                    {grupo.descricao && <p>{grupo.descricao}</p>}
+                  </div>
+
+                  {grupo.itens.length === 1 ? (
+                    <div className="checklist-row-action">
+                      <span className={`badge ${grupo.status === "ENVIADO" ? "badge-success" : "badge-pending"}`}>
+                        {grupo.status === "ENVIADO" ? "Enviado" : "Pendente"}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        style={{ display: "none" }}
+                        ref={(el) => (inputRefs.current[grupo.itens[0].solicitado_id] = el)}
+                        onChange={(e) =>
+                          enviarArquivo(grupo.itens[0].solicitado_id, grupo.chave, e.target.files?.[0])
+                        }
+                      />
+                      <button
+                        className={grupo.status === "ENVIADO" ? "btn-outline-blue" : "btn-solid-blue"}
+                        onClick={() => abrirSeletor(grupo.itens[0].solicitado_id)}
+                        disabled={enviandoChave === grupo.chave}
+                      >
+                        {enviandoChave === grupo.chave
+                          ? "Enviando..."
+                          : grupo.status === "ENVIADO"
+                          ? "Substituir"
+                          : "Fazer Upload"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="checklist-subitens">
+                      {grupo.itens.map((item) => {
+                        const chaveItem = `${grupo.chave}-${item.solicitado_id}`;
+                        return (
+                          <div className="checklist-subitem" key={item.solicitado_id}>
+                            <span className="sub-rotulo">{item.rotulo}</span>
+                            <span className={`badge ${item.status === "ENVIADO" ? "badge-success" : "badge-pending"}`}>
+                              {item.status === "ENVIADO" ? "Enviado" : "Pendente"}
+                            </span>
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png"
+                              style={{ display: "none" }}
+                              ref={(el) => (inputRefs.current[item.solicitado_id] = el)}
+                              onChange={(e) => enviarArquivo(item.solicitado_id, chaveItem, e.target.files?.[0])}
+                            />
+                            <button
+                              className={item.status === "ENVIADO" ? "btn-outline-blue" : "btn-solid-blue"}
+                              onClick={() => abrirSeletor(item.solicitado_id)}
+                              disabled={enviandoChave === chaveItem}
+                            >
+                              {enviandoChave === chaveItem
+                                ? "Enviando..."
+                                : item.status === "ENVIADO"
+                                ? "Substituir"
+                                : "Fazer Upload"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="checklist-footer">
+            <button
+              className="btn-solid-blue"
+              disabled={!tudoEnviado}
+              onClick={() => navigate(`/auditoria/${inscricaoId}`)}
+            >
+              Próximo
+            </button>
+          </div>
         </div>
-        <label className="dropzone"><FileUp size={28} /><strong>{arquivo ? arquivo.name : "Escolha o arquivo"}</strong><span>PDF, JPG, JPEG ou PNG</span><input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(event) => setArquivo(event.target.files?.[0] || null)} /></label>
-        {erro && <div className="alert error-alert">{erro}</div>}
-        {resultado && <div className="alert success-alert"><CheckCircle2 size={18} /><div><strong>{resultado.message}</strong><span>Status: {resultado.status} · análise #{resultado.analise_id}</span></div></div>}
-        <button className="primary-button wide-button" disabled={enviando || !arquivo}>{enviando ? <><LoaderCircle className="spin" size={17} /> Processando...</> : <><FileUp size={17} /> Enviar para análise</>}</button>
-      </form>
-    </section>
-  </main>;
+      </section>
+    </main>
+  );
 }
