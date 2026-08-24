@@ -6,6 +6,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     TIMESTAMP,
@@ -50,7 +51,7 @@ class DocumentosSolicitados(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
     nome_documento = Column(
-        Enum('RG', 'RG_VERSO', 'CNH', 'RESIDENCIA', 'HOLERITE', 'OUTRO', name='documento_categoria'),
+        Enum("RG", "RG_VERSO", "CNH", "RESIDENCIA", "HOLERITE", "OUTRO", name="documento_categoria"),
         nullable=False,
     )
     obrigatorio = Column(Integer, nullable=False, server_default=text("0"))
@@ -118,15 +119,30 @@ class DocumentosEnviados(Base):
     inscricao_id = Column(Integer, ForeignKey("inscricoes.id"), nullable=False)
     solicitado_id = Column(Integer, ForeignKey("documentos_solicitados.id"), nullable=False)
     membro_id = Column(Integer, ForeignKey("membros_familia.id"), nullable=True)
-    caminho_arquivo = Column(String(255), nullable=False)
     status_processamento = Column(String(50), nullable=False, server_default=text("'PENDENTE'"))
     mensagem_erro = Column(Text, nullable=True)
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     inscricao = relationship("Inscricoes", back_populates="documentos_enviados")
-    solicitado = relationship("DocumentosSolicitados", back_populates="documentos_enviados") 
+    solicitado = relationship("DocumentosSolicitados", back_populates="documentos_enviados")
     membro = relationship("MembrosFamilia")
     analises_ocr = relationship("AnalisesOcr", back_populates="documento")
+    binario = relationship("DocumentoBinario", back_populates="documento", uselist=False)
+
+
+class DocumentoBinario(Base):
+    __tablename__ = "documentos_binarios"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    documento_id = Column(Integer, ForeignKey("documentos_enviados.id"), nullable=False, unique=True)
+    conteudo_criptografado = Column(LargeBinary, nullable=False)
+    nome_arquivo_original = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    tamanho_bytes = Column(Integer, nullable=False)
+    criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    documento = relationship("DocumentosEnviados", back_populates="binario")
+
 
 class AnalisesOcr(Base):
     __tablename__ = "analises_ocr"

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "troque-essa-chave-no-.env"
     jwt_algorithm: str = "HS256"
     jwt_expira_minutos: int = 480  # 8h
+    encryption_key: str = ""
 
     class Config:
         env_file = ENV_FILE
