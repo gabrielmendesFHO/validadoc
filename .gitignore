@@ -10,3 +10,4 @@ venv/
 *.sqlite3
 .env
 uploads/
+CONTEXTO_PROJETO.MD
