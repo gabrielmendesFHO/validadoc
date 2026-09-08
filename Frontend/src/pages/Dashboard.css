@@ -225,6 +225,21 @@
   color: #d92d20;
 }
 
+.status-warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-processing {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+.status-neutral {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 800px) {

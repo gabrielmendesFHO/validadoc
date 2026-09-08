@@ -19,10 +19,17 @@ import api from "../api/client";
 // Sub-componentes de UI
 // ─────────────────────────────────────────────
 
-function FeedbackBox({ nivel, mensagem }) {
+function FeedbackBox({ nivel, mensagem, status }) {
   if (!mensagem) return null;
+  const isErroIa = status === "ERRO" || /ia|limite|cota|429|instabilidade|extrair/i.test(mensagem);
   const cfg = {
-    erro: { bg: "#fef2f2", border: "#fecaca", text: "#b91c1c", icon: <XCircle size={15} style={{ flexShrink: 0, marginTop: 2 }} />, titulo: "Documento rejeitado" },
+    erro: {
+      bg: isErroIa ? "#fff7ed" : "#fef2f2",
+      border: isErroIa ? "#fed7aa" : "#fecaca",
+      text: isErroIa ? "#9a3412" : "#b91c1c",
+      icon: isErroIa ? <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} /> : <XCircle size={15} style={{ flexShrink: 0, marginTop: 2 }} />,
+      titulo: isErroIa ? "Instabilidade na IA" : "Documento rejeitado",
+    },
     aviso: { bg: "#fffbeb", border: "#fde68a", text: "#92400e", icon: <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />, titulo: "Atenção" },
     sucesso: { bg: "#ecfdf5", border: "#a7f3d0", text: "#065f46", icon: <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 2 }} />, titulo: "Aprovado" },
   }[nivel] || { bg: "#f9fafb", border: "#e5e7eb", text: "#374151", icon: null, titulo: "Aviso" };
@@ -339,7 +346,7 @@ export default function UploadDocumento({ usuario }) {
 
                   {/* Feedback do grupo */}
                   {grupo.mensagem_feedback && !grupoEmProcessamento && (
-                    <FeedbackBox nivel={grupo.nivel_alerta} mensagem={grupo.mensagem_feedback} />
+                    <FeedbackBox nivel={grupo.nivel_alerta} mensagem={grupo.mensagem_feedback} status={grupo.status} />
                   )}
 
                   {/* Overlay de processamento */}
@@ -418,7 +425,7 @@ export default function UploadDocumento({ usuario }) {
 
                                   {/* Feedback individual do subitem */}
                                   {item.mensagem_feedback && (
-                                    <FeedbackBox nivel={item.nivel_alerta} mensagem={item.mensagem_feedback} />
+                                    <FeedbackBox nivel={item.nivel_alerta} mensagem={item.mensagem_feedback} status={item.status} />
                                   )}
                                 </>
                               )}

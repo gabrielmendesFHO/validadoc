@@ -67,6 +67,64 @@ def minha_inscricao(
     return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral}
 
 
+@router.get("/dashboard/metricas")
+def metricas_dashboard(
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
+    """Devolve as estatísticas reais e o histórico de documentos enviados para o Dashboard."""
+    query = (
+        db.query(DocumentosEnviados, DocumentosSolicitados)
+        .join(DocumentosSolicitados, DocumentosEnviados.solicitado_id == DocumentosSolicitados.id)
+        .join(Inscricoes, DocumentosEnviados.inscricao_id == Inscricoes.id)
+    )
+
+    if usuario.perfil == "CANDIDATO":
+        query = query.filter(Inscricoes.candidato_id == usuario.id)
+
+    todos = query.all()
+    hoje = datetime.now().date()
+    ultimas_hoje = sum(1 for d, _ in todos if d.criado_em and d.criado_em.date() == hoje)
+    concluidos = sum(1 for d, _ in todos if d.status_processamento == "CONCLUIDO")
+    total = len(todos)
+
+    percent = round((concluidos / total) * 100) if total > 0 else 0
+    label_status = "Aprovado" if percent >= 70 else ("Em Análise" if percent >= 30 else ("Pendente" if total == 0 else "Rejeitado"))
+
+    ultimos_docs = query.order_by(DocumentosEnviados.criado_em.desc()).limit(10).all()
+
+    historico = []
+    for d, s in ultimos_docs:
+        if d.status_processamento == "CONCLUIDO":
+            resultado = "Aprovado"
+        elif d.status_processamento == "REJEITADO":
+            resultado = "Rejeitado"
+        elif d.status_processamento == "ERRO_EXTRACAO":
+            resultado = "Erro IA"
+        else:
+            resultado = "Processando"
+
+        historico.append({
+            "id": d.id,
+            "data": d.criado_em.strftime("%d/%m/%Y") if d.criado_em else "—",
+            "hora": d.criado_em.strftime("%H:%M") if d.criado_em else "—",
+            "tipo": s.nome_documento,
+            "resultado": resultado,
+        })
+
+    return {
+        "stats": {
+            "ultimasValidacoesHoje": ultimas_hoje,
+            "statusGeral": {
+                "label": label_status,
+                "percent": percent,
+            },
+            "totalValidacoes": total,
+        },
+        "historico": historico,
+    }
+
+
 def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
     ultimo_por_solicitado = {}
     for doc in enviados:

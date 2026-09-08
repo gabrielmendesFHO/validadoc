@@ -240,41 +240,6 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
     config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
     client = _get_client()
 
-    try:
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=[
-                config_extracao["prompt"],
-                types.Part.from_bytes(data=conteudo, mime_type=mime_type),
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=config_extracao["schema"],
-                temperature=0.1,
-            ),
-        )
-        dados = _parse_json_response(response.text)
-        return _filtrar_campos_resposta(dados, config_extracao["schema"])
-    except GeminiExtractionError:
-        raise
-    except Exception as exc:
-        fallback_prompt = (
-            config_extracao["prompt"]
-            + " Responda SOMENTE em JSON válido, sem explicações e sem markdown. "
-            + "Se não houver dado, use null."
-        )
-        try:
-            response_fallback = client.models.generate_content(
-                model=settings.gemini_model,
-                contents=[fallback_prompt, types.Part.from_bytes(data=conteudo, mime_type=mime_type)],
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
-            )
-            dados = _parse_json_response(response_fallback.text)
-            return _filtrar_campos_resposta(dados, config_extracao["schema"])
-        except Exception as fallback_exc:
-            raise GeminiExtractionError(
-                f"Falha na chamada à API do Gemini: {exc}. Fallback também falhou: {fallback_exc}"
-            ) from fallback_exc
     modelos = [settings.gemini_model]
     if "gemini-2.5-flash" not in modelos:
         modelos.append("gemini-2.5-flash")
@@ -301,10 +266,17 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
             except Exception as exc:
                 ultimo_erro = exc
                 err_msg = str(exc).lower()
+
+                # Se for cota temporária excedida (429), aguarda 2s e tenta novamente
+                if "429" in err_msg or "resource_exhausted" in err_msg or "quota" in err_msg:
+                    time.sleep(2.0)
+                    continue
+
                 # Se for erro temporário de rede ou 503 sobrecarga, espera 1s e tenta novamente
                 if "503" in err_msg or "unavailable" in err_msg or "getaddrinfo" in err_msg or "connection" in err_msg:
                     time.sleep(1.0)
                     continue
+
                 # Se o schema estrito falhou por formato, tenta fallback simples com prompt json
                 fallback_prompt = (
                     config_extracao["prompt"]
@@ -323,6 +295,12 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
                     ultimo_erro = fallback_exc
                     break
 
+    ultimo_msg = str(ultimo_erro).lower()
+    if "429" in ultimo_msg or "resource_exhausted" in ultimo_msg or "quota" in ultimo_msg:
+        raise GeminiExtractionError(
+            "Limite temporário de requisições por minuto da IA atingido. Aguarde cerca de 30 segundos e clique em Reenviar."
+        )
+
     raise GeminiExtractionError(
-        f"Instabilidade temporária na API da IA. Clique em 'Reenviar' para processar novamente. Detalhe técnico: {ultimo_erro}"
+        f"Instabilidade temporária na API da IA. Clique em 'Reenviar' para tentar novamente."
     )
