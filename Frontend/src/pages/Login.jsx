@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 
@@ -33,7 +33,20 @@ export default function Login() {
     <main className="auth-shell">
       <div className="auth-card auth-card--split">
         <div className="auth-form-col">
-          <p className="auth-wordmark">VOCR'S</p>
+                    <div className="auth-form-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
+            <button
+              onClick={() => navigate("/")}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '8px', 
+                background: 'transparent', border: '1px solid #e5e7eb', 
+                color: '#4b5563', padding: '6px 14px', borderRadius: '99px',
+                fontSize: '14px', fontWeight: '500', cursor: 'pointer'
+              }}
+            >
+              ← Voltar
+            </button>
+            <p className="auth-wordmark" style={{ margin: 0, fontWeight: 800, color: '#10b981' }}>VOCR'S</p>
+          </div>
           <h1>Acesso ao sistema</h1>
           <p className="muted">Entre com suas credenciais para validar documentos.</p>
 
@@ -57,13 +70,13 @@ export default function Login() {
               />
             </div>
 
-            <a className="auth-forgot" href="#esqueci-senha">
+            <a className="auth-forgot" style={{ color: "#6366f1", textDecoration: "none", alignSelf: "flex-start", marginBottom: "20px" }} href="#esqueci-senha">
               Esqueci minha senha
             </a>
 
             {erro && <div className="alert error-alert">{erro}</div>}
 
-            <button className="auth-submit" type="submit">
+            <button className="auth-submit" style={{ background: "#10b981", color: "#fff", border: "none", borderRadius: "12px", padding: "14px", fontWeight: "bold" }} type="submit">
               Entrar
             </button>
           </form>
