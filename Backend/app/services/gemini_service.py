@@ -231,7 +231,12 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
 
     Levanta GeminiExtractionError em qualquer falha — a rota decide o que
     fazer com isso, sem derrubar a aplicação.
+    Tenta primeiro o modelo configurado (gemini-3.6-flash) e, caso haja sobrecarga
+    (503 UNAVAILABLE) ou instabilidade de rede, tenta automaticamente o gemini-2.5-flash
+    com retry para garantir que o candidato nunca fique bloqueado.
     """
+    import time
+
     config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
     client = _get_client()
 
@@ -270,3 +275,54 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
             raise GeminiExtractionError(
                 f"Falha na chamada à API do Gemini: {exc}. Fallback também falhou: {fallback_exc}"
             ) from fallback_exc
+    modelos = [settings.gemini_model]
+    if "gemini-2.5-flash" not in modelos:
+        modelos.append("gemini-2.5-flash")
+
+    ultimo_erro = None
+
+    for modelo in modelos:
+        for tentativa in range(2):  # até 2 tentativas por modelo
+            try:
+                response = client.models.generate_content(
+                    model=modelo,
+                    contents=[
+                        config_extracao["prompt"],
+                        types.Part.from_bytes(data=conteudo, mime_type=mime_type),
+                    ],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=config_extracao["schema"],
+                        temperature=0.1,
+                    ),
+                )
+                dados = _parse_json_response(response.text)
+                return _filtrar_campos_resposta(dados, config_extracao["schema"])
+            except Exception as exc:
+                ultimo_erro = exc
+                err_msg = str(exc).lower()
+                # Se for erro temporário de rede ou 503 sobrecarga, espera 1s e tenta novamente
+                if "503" in err_msg or "unavailable" in err_msg or "getaddrinfo" in err_msg or "connection" in err_msg:
+                    time.sleep(1.0)
+                    continue
+                # Se o schema estrito falhou por formato, tenta fallback simples com prompt json
+                fallback_prompt = (
+                    config_extracao["prompt"]
+                    + " Responda SOMENTE em JSON válido, sem explicações e sem markdown. "
+                    + "Se não houver dado, use null."
+                )
+                try:
+                    response_fallback = client.models.generate_content(
+                        model=modelo,
+                        contents=[fallback_prompt, types.Part.from_bytes(data=conteudo, mime_type=mime_type)],
+                        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
+                    )
+                    dados = _parse_json_response(response_fallback.text)
+                    return _filtrar_campos_resposta(dados, config_extracao["schema"])
+                except Exception as fallback_exc:
+                    ultimo_erro = fallback_exc
+                    break
+
+    raise GeminiExtractionError(
+        f"Instabilidade temporária na API da IA. Clique em 'Reenviar' para processar novamente. Detalhe técnico: {ultimo_erro}"
+    )

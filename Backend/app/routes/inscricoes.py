@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -66,7 +67,7 @@ def minha_inscricao(
     return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral}
 
 
-def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
+def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
     ultimo_por_solicitado = {}
     for doc in enviados:
         if doc.membro_id != membro_id_alvo:
@@ -78,10 +79,36 @@ def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
     def status_do_item(solicitado_id):
         doc = ultimo_por_solicitado.get(solicitado_id)
         if doc is None:
-            return "PENDENTE", None
-        if doc.status_processamento == "CONCLUIDO":
-            return "ENVIADO", doc.id
-        return "PENDENTE", doc.id
+            return "PENDENTE", None, None, None
+
+        ultima_analise = (
+            db.query(AnalisesOcr)
+            .filter_by(documento_id=doc.id)
+            .order_by(AnalisesOcr.criado_em.desc())
+            .first()
+        )
+
+        mensagem = (ultima_analise.parecer if ultima_analise and ultima_analise.parecer else doc.mensagem_erro) or None
+
+        if doc.status_processamento == "PROCESSANDO_IA":
+            idade_segundos = (datetime.now() - doc.criado_em).total_seconds() if doc.criado_em else 0
+            if idade_segundos > 120:
+                doc.status_processamento = "ERRO_EXTRACAO"
+                doc.mensagem_erro = "Tempo limite na análise pela IA. Clique em Reenviar."
+                db.add(doc)
+                db.commit()
+                return "ERRO", doc.id, "erro", doc.mensagem_erro
+            return "PROCESSANDO", doc.id, None, "Documento em análise pela Inteligência Artificial..."
+        elif doc.status_processamento == "REJEITADO":
+            return "REJEITADO", doc.id, "erro", mensagem
+        elif doc.status_processamento == "ERRO_EXTRACAO":
+            return "ERRO", doc.id, "erro", mensagem
+        elif doc.status_processamento == "CONCLUIDO":
+            if ultima_analise and ultima_analise.status_auditoria == "POSSIVEL_DIVERGENCIA":
+                return "ATENCAO", doc.id, "aviso", mensagem
+            return "ENVIADO", doc.id, "sucesso", mensagem
+
+        return "PENDENTE", doc.id, None, None
 
     grupos, ordem = {}, []
     for solicitado in solicitados:
@@ -92,7 +119,7 @@ def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
             grupos[chave] = []
             ordem.append(chave)
 
-        status, documento_id = status_do_item(solicitado.id)
+        status, documento_id, nivel_alerta, mensagem_feedback = status_do_item(solicitado.id)
         rotulo = ROTULOS_IDENTIDADE.get(nome) if chave == "IDENTIDADE" else None
         grupos[chave].append(
             {
@@ -102,6 +129,8 @@ def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
                 "obrigatorio": bool(solicitado.obrigatorio),
                 "status": status,
                 "documento_id": documento_id,
+                "nivel_alerta": nivel_alerta,
+                "mensagem_feedback": mensagem_feedback,
             }
         )
 
@@ -109,13 +138,37 @@ def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
     for chave in ordem:
         itens = grupos[chave]
         titulo, descricao_padrao = TITULOS_CHECKLIST.get(chave, (chave.title(), None))
-        status_geral_item = "ENVIADO" if all(item["status"] == "ENVIADO" for item in itens) else "PENDENTE"
+
+        if any(item["status"] == "PROCESSANDO" for item in itens):
+            status_geral_item = "PROCESSANDO"
+            nivel_alerta_geral = None
+        elif any(item["status"] in {"REJEITADO", "ERRO"} for item in itens):
+            status_geral_item = "REJEITADO"
+            nivel_alerta_geral = "erro"
+        elif any(item["status"] == "ATENCAO" for item in itens):
+            status_geral_item = "ATENCAO"
+            nivel_alerta_geral = "aviso"
+        elif all(item["status"] == "ENVIADO" for item in itens):
+            status_geral_item = "ENVIADO"
+            nivel_alerta_geral = "sucesso"
+        elif any(item["status"] in {"ENVIADO", "ATENCAO"} for item in itens):
+            status_geral_item = "PARCIAL"
+            nivel_alerta_geral = None
+        else:
+            status_geral_item = "PENDENTE"
+            nivel_alerta_geral = None
+
+        mensagens_itens = [item["mensagem_feedback"] for item in itens if item["mensagem_feedback"]]
+        mensagem_feedback_geral = " | ".join(mensagens_itens) if mensagens_itens else None
+
         resultado.append(
             {
                 "chave": chave,
                 "titulo": titulo,
                 "descricao": descricao_padrao,
                 "status": status_geral_item,
+                "nivel_alerta": nivel_alerta_geral,
+                "mensagem_feedback": mensagem_feedback_geral,
                 "obrigatorio": any(item["obrigatorio"] for item in itens),
                 "itens": itens,
             }
@@ -145,7 +198,7 @@ def checklist_documentos(
     membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
 
     candidato_obj = db.get(Usuarios, inscricao.candidato_id)
-    checklist_candidato = _gerar_checklist_para_pessoa(None, solicitados, enviados)
+    checklist_candidato = _gerar_checklist_para_pessoa(db, None, solicitados, enviados)
     
     membros_lista = []
     for membro in membros:
@@ -153,7 +206,7 @@ def checklist_documentos(
             "membro_id": membro.id,
             "nome_completo": membro.nome_completo,
             "parentesco": membro.parentesco,
-            "checklist": _gerar_checklist_para_pessoa(membro.id, solicitados, enviados)
+            "checklist": _gerar_checklist_para_pessoa(db, membro.id, solicitados, enviados)
         })
 
     return {
