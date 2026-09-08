@@ -11,3 +11,4 @@ venv/
 .env
 uploads/
 CONTEXTO_PROJETO.MD
+.pytest_cache/
