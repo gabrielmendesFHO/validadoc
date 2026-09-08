@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -66,28 +67,11 @@ def minha_inscricao(
     return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral}
 
 
-@router.get("/{inscricao_id}/checklist")
-def checklist_documentos(
-    inscricao_id: int,
-    db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
-):
-    inscricao = db.get(Inscricoes, inscricao_id)
-    if inscricao is None:
-        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
-    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
-        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
-
-    solicitados = (
-        db.query(DocumentosSolicitados)
-        .filter_by(processo_id=inscricao.processo_id)
-        .order_by(DocumentosSolicitados.id)
-        .all()
-    )
-    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
-
+def _gerar_checklist_para_pessoa(membro_id_alvo, solicitados, enviados):
     ultimo_por_solicitado = {}
     for doc in enviados:
+        if doc.membro_id != membro_id_alvo:
+            continue
         anterior = ultimo_por_solicitado.get(doc.solicitado_id)
         if anterior is None or doc.criado_em >= anterior.criado_em:
             ultimo_por_solicitado[doc.solicitado_id] = doc
@@ -137,15 +121,63 @@ def checklist_documentos(
                 "itens": itens,
             }
         )
-
     return resultado
 
 
-@router.post("/{inscricao_id}/membros")
-def adicionar_membro(inscricao_id: int, membro: MembroFamiliaIn, db: Session = Depends(get_db)):
+@router.get("/{inscricao_id}/checklist")
+def checklist_documentos(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+
+    solicitados = (
+        db.query(DocumentosSolicitados)
+        .filter_by(processo_id=inscricao.processo_id)
+        .order_by(DocumentosSolicitados.id)
+        .all()
+    )
+    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
+    membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
+
+    candidato_obj = db.get(Usuarios, inscricao.candidato_id)
+    checklist_candidato = _gerar_checklist_para_pessoa(None, solicitados, enviados)
+    
+    membros_lista = []
+    for membro in membros:
+        membros_lista.append({
+            "membro_id": membro.id,
+            "nome_completo": membro.nome_completo,
+            "parentesco": membro.parentesco,
+            "checklist": _gerar_checklist_para_pessoa(membro.id, solicitados, enviados)
+        })
+
+    return {
+        "candidato": {
+            "nome_completo": candidato_obj.nome_completo if candidato_obj else "Candidato",
+            "checklist": checklist_candidato
+        },
+        "membros": membros_lista
+    }
+
+
+@router.post("/{inscricao_id}/membros")
+def adicionar_membro(
+    inscricao_id: int,
+    membro: MembroFamiliaIn,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
 
     novo_membro = MembrosFamilia(inscricao_id=inscricao_id, **membro.model_dump())
     db.add(novo_membro)
@@ -154,46 +186,76 @@ def adicionar_membro(inscricao_id: int, membro: MembroFamiliaIn, db: Session = D
     return novo_membro
 
 
-@router.get("/{inscricao_id}/membros")
-def listar_membros(inscricao_id: int, db: Session = Depends(get_db)):
-    inscricao = db.get(Inscricoes, inscricao_id)
-    if inscricao is None:
-        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
-    return inscricao.membros_familia
-
-
-@router.post("/{inscricao_id}/auditar")
-def auditar_inscricao_endpoint(
+@router.put("/{inscricao_id}/membros/{membro_id}")
+def editar_membro(
     inscricao_id: int,
+    membro_id: int,
+    membro_in: MembroFamiliaIn,
     db: Session = Depends(get_db),
-    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+    usuario: Usuarios = Depends(get_current_user),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
         raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+        
+    membro = db.query(MembrosFamilia).filter_by(id=membro_id, inscricao_id=inscricao_id).first()
+    if not membro:
+        raise HTTPException(status_code=404, detail="Membro familiar não encontrado para esta inscrição.")
 
-    candidato = db.get(Usuarios, inscricao.candidato_id)
-    processo = db.get(ProcessosBolsa, inscricao.processo_id)
+    membro.nome_completo = membro_in.nome_completo
+    membro.parentesco = membro_in.parentesco
+    membro.renda_declarada = membro_in.renda_declarada
+    db.commit()
+    db.refresh(membro)
+    return membro
 
-    solicitados = db.query(DocumentosSolicitados).filter_by(processo_id=inscricao.processo_id).all()
-    obrigatorios = {s.id for s in solicitados if s.obrigatorio}
-    solicitado_por_id = {s.id: s.nome_documento for s in solicitados}
 
-    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
-    concluidos_ids = {d.solicitado_id for d in enviados if d.status_processamento == "CONCLUIDO"}
+@router.delete("/{inscricao_id}/membros/{membro_id}")
+def remover_membro(
+    inscricao_id: int,
+    membro_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+        
+    membro = db.query(MembrosFamilia).filter_by(id=membro_id, inscricao_id=inscricao_id).first()
+    if not membro:
+        raise HTTPException(status_code=404, detail="Membro familiar não encontrado para esta inscrição.")
+    
+    # Remover documentos associados ao membro (ou apenas desvincular)
+    db.query(DocumentosEnviados).filter_by(membro_id=membro_id).delete()
+    
+    db.delete(membro)
+    db.commit()
+    return {"message": "Membro familiar removido com sucesso."}
 
-    faltando = obrigatorios - concluidos_ids
-    if faltando:
-        nomes_faltando = [solicitado_por_id.get(sid, str(sid)) for sid in faltando]
-        inscricao.status_geral = "PENDENTE"
-        inscricao.parecer = f"Documentos obrigatórios pendentes: {', '.join(nomes_faltando)}."
-        inscricao.inconsistencias = None
-        db.commit()
-        return {"status_geral": inscricao.status_geral, "parecer": inscricao.parecer}
 
+@router.get("/{inscricao_id}/membros")
+def listar_membros(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(get_current_user),
+):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if usuario.perfil == "CANDIDATO" and inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+    return inscricao.membros_familia
+
+
+def _coletar_documentos_auditoria(db: Session, enviados_pessoa, solicitado_por_id):
     documentos_com_analise = []
     partes_rg = []
-    for doc in enviados:
+    
+    for doc in enviados_pessoa:
         categoria = solicitado_por_id.get(doc.solicitado_id, "OUTRO")
         ultima_analise = (
             db.query(AnalisesOcr)
@@ -205,6 +267,7 @@ def auditar_inscricao_endpoint(
         if ultima_analise and ultima_analise.dados_extraidos:
             dados = json.loads(ultima_analise.dados_extraidos)
             status_auditoria = ultima_analise.status_auditoria
+            
         if categoria in {"RG", "RG_VERSO"}:
             partes_rg.append((dados, doc.status_processamento, status_auditoria))
         else:
@@ -228,10 +291,66 @@ def auditar_inscricao_endpoint(
             None,
         )
         documentos_com_analise.append(("RG", dados_rg or None, status_rg, status_auditoria_rg))
+        
+    return documentos_com_analise
 
+
+@router.post("/{inscricao_id}/auditar")
+def auditar_inscricao_endpoint(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+
+    candidato = db.get(Usuarios, inscricao.candidato_id)
+    processo = db.get(ProcessosBolsa, inscricao.processo_id)
     membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
 
-    resultado = auditar_inscricao(candidato, documentos_com_analise, membros, processo)
+    solicitados = db.query(DocumentosSolicitados).filter_by(processo_id=inscricao.processo_id).all()
+    obrigatorios = {s.id for s in solicitados if s.obrigatorio}
+    solicitado_por_id = {s.id: s.nome_documento for s in solicitados}
+
+    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
+    
+    # 1. Checagem de documentos obrigatórios para o Candidato
+    enviados_candidato = [d for d in enviados if d.membro_id is None]
+    concluidos_candidato = {d.solicitado_id for d in enviados_candidato if d.status_processamento == "CONCLUIDO"}
+    faltando_candidato = obrigatorios - concluidos_candidato
+    
+    mensagens_falta = []
+    if faltando_candidato:
+        nomes_faltando = [solicitado_por_id.get(sid, str(sid)) for sid in faltando_candidato]
+        mensagens_falta.append(f"Candidato pendente: {', '.join(nomes_faltando)}")
+
+    # 2. Checagem de documentos obrigatórios para os Membros
+    for membro in membros:
+        enviados_membro = [d for d in enviados if d.membro_id == membro.id]
+        concluidos_membro = {d.solicitado_id for d in enviados_membro if d.status_processamento == "CONCLUIDO"}
+        faltando_membro = obrigatorios - concluidos_membro
+        if faltando_membro:
+            nomes_faltando = [solicitado_por_id.get(sid, str(sid)) for sid in faltando_membro]
+            mensagens_falta.append(f"Familiar '{membro.nome_completo}' pendente: {', '.join(nomes_faltando)}")
+
+    # Se faltar documento em qualquer um, trava a auditoria na hora
+    if mensagens_falta:
+        inscricao.status_geral = "PENDENTE"
+        inscricao.parecer = "Documentos obrigatórios pendentes:\n" + "\n".join(mensagens_falta)
+        inscricao.inconsistencias = None
+        db.commit()
+        return {"status_geral": inscricao.status_geral, "parecer": inscricao.parecer}
+
+    # 3. Coletar documentos para auditoria profunda
+    docs_candidato_analise = _coletar_documentos_auditoria(db, enviados_candidato, solicitado_por_id)
+    
+    docs_membros_analise = {}
+    for membro in membros:
+        enviados_membro = [d for d in enviados if d.membro_id == membro.id]
+        docs_membros_analise[membro.id] = _coletar_documentos_auditoria(db, enviados_membro, solicitado_por_id)
+
+    resultado = auditar_inscricao(candidato, docs_candidato_analise, membros, docs_membros_analise, processo)
 
     inscricao.status_geral = resultado.status_geral
     inscricao.parecer = resultado.parecer

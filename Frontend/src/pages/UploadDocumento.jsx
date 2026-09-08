@@ -17,7 +17,33 @@ export default function UploadDocumento({ usuario }) {
   async function carregarChecklist(id) {
     try {
       const { data } = await api.get(`/inscricoes/${id}/checklist`);
-      setChecklist(data);
+      const pessoas = Array.isArray(data)
+        ? [{ pessoaChave: "candidato", nomeCompleto: usuario?.nome_completo || "Candidato", membroId: null, checklist: data }]
+        : [
+            {
+              pessoaChave: "candidato",
+              nomeCompleto: data.candidato?.nome_completo || usuario?.nome_completo || "Candidato",
+              membroId: null,
+              checklist: data.candidato?.checklist || [],
+            },
+            ...(data.membros || []).map((membro) => ({
+              pessoaChave: `membro-${membro.membro_id}`,
+              nomeCompleto: membro.nome_completo,
+              membroId: membro.membro_id,
+              checklist: membro.checklist || [],
+            })),
+          ];
+
+      setChecklist(
+        pessoas.flatMap((pessoa) =>
+          pessoa.checklist.map((grupo) => ({
+            ...grupo,
+            pessoaChave: pessoa.pessoaChave,
+            nomePessoa: pessoa.nomeCompleto,
+            membroId: pessoa.membroId,
+          }))
+        )
+      );
     } catch (err) {
       setErro(err.response?.data?.detail || "Nao foi possivel carregar os documentos.");
     } finally {
@@ -44,7 +70,7 @@ export default function UploadDocumento({ usuario }) {
   }
 
   // Apenas retem no state antes de subir
-  function lidarComSelecaoArquivo(solicitadoId, chaveItem, file) {
+  function lidarComSelecaoArquivo(solicitadoId, chaveItem, file, membroId = null) {
     if (!file) return;
     
     // Criar um preview URL para mostrar na tela
@@ -52,7 +78,7 @@ export default function UploadDocumento({ usuario }) {
     
     setArquivosSelecionados(prev => ({
       ...prev,
-      [chaveItem]: { file, previewUrl, solicitadoId }
+      [chaveItem]: { file, previewUrl, solicitadoId, membroId }
     }));
   }
 
@@ -79,6 +105,7 @@ export default function UploadDocumento({ usuario }) {
         const formData = new FormData();
         formData.append("inscricao_id", inscricaoId);
         formData.append("solicitado_id", item.solicitadoId);
+        if (item.membroId !== null) formData.append("membro_id", item.membroId);
         formData.append("file", item.file);
         
         await api.post("/documentos/upload", formData);
@@ -132,10 +159,19 @@ export default function UploadDocumento({ usuario }) {
             <div style={{ textAlign: 'center', padding: '40px' }}>Carregando documentos...</div>
           ) : (
             <div style={{ marginTop: '24px' }}>
-              {checklist.map((grupo) => (
-                <div key={grupo.chave} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '24px', marginBottom: '24px' }}>
+              {checklist.map((grupo, index) => {
+                const chaveGrupo = `${grupo.pessoaChave}-${grupo.chave}`;
+                const primeiraPessoa = index === 0 || checklist[index - 1].pessoaChave !== grupo.pessoaChave;
+
+                return (
+                <div key={chaveGrupo} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '24px', marginBottom: '24px' }}>
+                  {primeiraPessoa && (
+                    <h2 style={{ fontSize: '20px', margin: '0 0 16px', color: '#111827' }}>
+                      {grupo.pessoaChave === "candidato" ? "Meus Documentos" : `Documentos de ${grupo.nomePessoa}`}
+                    </h2>
+                  )}
                   <div style={{ marginBottom: '16px' }}>
-                    <h2 style={{ fontSize: '18px', margin: '0 0 4px' }}>{grupo.titulo}</h2>
+                    <h3 style={{ fontSize: '18px', margin: '0 0 4px' }}>{grupo.titulo}</h3>
                     {grupo.descricao && <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>{grupo.descricao}</p>}
                   </div>
 
@@ -150,21 +186,21 @@ export default function UploadDocumento({ usuario }) {
                         type="file"
                         accept="image/*, .pdf"
                         style={{ display: "none" }}
-                        ref={(el) => (inputRefs.current[grupo.itens[0].solicitado_id] = el)}
-                        onChange={(e) => lidarComSelecaoArquivo(grupo.itens[0].solicitado_id, grupo.chave, e.target.files?.[0])}
+                        ref={(el) => (inputRefs.current[`${grupo.pessoaChave}-${grupo.itens[0].solicitado_id}`] = el)}
+                        onChange={(e) => lidarComSelecaoArquivo(grupo.itens[0].solicitado_id, chaveGrupo, e.target.files?.[0], grupo.membroId)}
                       />
 
-                      {!arquivosSelecionados[grupo.chave] ? (
+                      {!arquivosSelecionados[chaveGrupo] ? (
                          <button
                            style={{ background: '#6366f1', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer' }}
-                           onClick={() => abrirSeletor(grupo.itens[0].solicitado_id)}
+                           onClick={() => abrirSeletor(`${grupo.pessoaChave}-${grupo.itens[0].solicitado_id}`)}
                          >
                            Adicionar
                          </button>
                       ) : (
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                           <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 'bold' }}>Arquivo pronto</span>
-                          <button style={{ background: '#fef2f2', color: '#ef4444', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', fontSize: '13px' }} onClick={() => descartarArquivo(grupo.chave)}>Remover</button>
+                          <button style={{ background: '#fef2f2', color: '#ef4444', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', fontSize: '13px' }} onClick={() => descartarArquivo(chaveGrupo)}>Remover</button>
                         </div>
                       )}
                     </div>
@@ -172,7 +208,7 @@ export default function UploadDocumento({ usuario }) {
                     // Caso tenha Subitens (Ex: RGFrente e RGVerso)
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                       {grupo.itens.map((item) => {
-                        const chaveItem = grupo.chave + "-" + item.solicitado_id;
+                        const chaveItem = `${chaveGrupo}-${item.solicitado_id}`;
                         const selecionado = arquivosSelecionados[chaveItem];
 
                         return (
@@ -188,8 +224,8 @@ export default function UploadDocumento({ usuario }) {
                                   accept="image/*"
                                   capture="environment" // prioriza câmera traseira no celular
                                   style={{ display: "none" }}
-                                  ref={(el) => (inputRefs.current[item.solicitado_id] = el)}
-                                  onChange={(e) => lidarComSelecaoArquivo(item.solicitado_id, chaveItem, e.target.files?.[0])}
+                                  ref={(el) => (inputRefs.current[`${grupo.pessoaChave}-${item.solicitado_id}`] = el)}
+                                  onChange={(e) => lidarComSelecaoArquivo(item.solicitado_id, chaveItem, e.target.files?.[0], grupo.membroId)}
                                 />
                                 
                                 {selecionado ? (
@@ -202,7 +238,7 @@ export default function UploadDocumento({ usuario }) {
                                 ) : (
                                   <button
                                     style={{ background: '#e0e7ff', color: '#4f46e5', border: 'none', padding: '24px 16px', borderRadius: '8px', cursor: 'pointer', width: '100%', fontWeight: '600' }}
-                                    onClick={() => abrirSeletor(item.solicitado_id)}
+                                    onClick={() => abrirSeletor(`${grupo.pessoaChave}-${item.solicitado_id}`)}
                                   >
                                     Câmera/Galeria
                                   </button>
@@ -215,7 +251,8 @@ export default function UploadDocumento({ usuario }) {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

@@ -11,3 +11,7 @@ pwdlib[argon2,bcrypt]
 pydantic-settings
 python-multipart
 email-validator
+# Testes
+pytest
+pytest-asyncio
+httpx

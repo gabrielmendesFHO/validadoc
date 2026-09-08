@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..dependencies import get_current_user
+from ..dependencies import exigir_perfil, get_current_user
 from ..models import Usuarios
 from ..security import criar_access_token, hash_senha, verificar_senha
 
@@ -12,20 +12,26 @@ router = APIRouter(prefix="/auth", tags=["Autenticação"])
 
 
 class RegistroIn(BaseModel):
-    nome_completo: str
     email: EmailStr
     senha: str
+    nome_completo: str | None = None
     cpf: str | None = None
 
 
 @router.post("/registrar", status_code=status.HTTP_201_CREATED)
-def registrar(dados: RegistroIn, db: Session = Depends(get_db)):
+def registrar(
+    dados: RegistroIn,
+    db: Session = Depends(get_db),
+    admin: Usuarios = Depends(exigir_perfil("ADMIN")),
+):
     existente = db.query(Usuarios).filter_by(email=dados.email).first()
     if existente:
         raise HTTPException(status_code=400, detail="E-mail já cadastrado.")
 
+    nome = dados.nome_completo if dados.nome_completo else f"Candidato ({dados.email})"
+
     novo_usuario = Usuarios(
-        nome_completo=dados.nome_completo,
+        nome_completo=nome,
         email=dados.email,
         senha_hash=hash_senha(dados.senha),
         perfil="CANDIDATO",
@@ -34,7 +40,7 @@ def registrar(dados: RegistroIn, db: Session = Depends(get_db)):
     db.add(novo_usuario)
     db.commit()
     db.refresh(novo_usuario)
-    return {"id": novo_usuario.id, "email": novo_usuario.email}
+    return {"id": novo_usuario.id, "email": novo_usuario.email, "nome_completo": novo_usuario.nome_completo}
 
 
 @router.post("/login")

@@ -6,7 +6,7 @@ consistência financeira, teto de elegibilidade e validação de identidade.
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Optional, Dict, List
 import re
 
 VALIDADE_MAXIMA_DIAS = 90
@@ -67,99 +67,139 @@ def _valor_para_float(valor, default=0.0):
     except (TypeError, ValueError, InvalidOperation):
         return default
 
-def auditar_inscricao(candidato, documentos_com_analise, membros_familia, processo) -> ResultadoAuditoria:
-    """
-    candidato: objeto Usuarios (dono da inscrição)
-    documentos_com_analise: lista de tuplas
-        (categoria: str, dados: dict|None, status_processamento: str, status_auditoria: str|None)
-    membros_familia: lista de MembrosFamilia
-    processo: objeto ProcessosBolsa
-    """
-    inconsistencias = []
 
+def _validar_lote_documentos(documentos, nome_pessoa, cpf_cadastro, inconsistencias):
+    """
+    Roda as validações de Qualidade, Validade Temporal, Identidade e Consistência Financeira 
+    para um lote de documentos pertencentes a uma pessoa.
+    Retorna a renda_bruta extraída (se houver holerite).
+    """
     dados_por_categoria = {
         cat: dados
-        for cat, dados, status_proc, _ in documentos_com_analise
+        for cat, dados, status_proc, _ in documentos
         if status_proc == "CONCLUIDO" and dados
     }
 
-    # 1. Qualidade/legibilidade e possíveis divergências de tipo (vindas da Fase 1)
-    for cat, dados, status_proc, status_auditoria in documentos_com_analise:
+    # 1. Qualidade/legibilidade e possíveis divergências de tipo
+    for cat, dados, status_proc, status_auditoria in documentos:
         if status_proc != "CONCLUIDO" or not dados:
             continue
         if status_auditoria == "POSSIVEL_DIVERGENCIA":
-            inconsistencias.append(f"{cat}: documento pode não corresponder ao tipo esperado.")
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: documento pode não corresponder ao tipo esperado.")
         legibilidade = dados.get("legibilidade")
         if legibilidade is not None and legibilidade < LEGIBILIDADE_MINIMA:
-            inconsistencias.append(f"{cat}: legibilidade baixa ({legibilidade}/100).")
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: legibilidade baixa ({legibilidade}/100).")
         if dados.get("documento_integro") is False:
-            inconsistencias.append(f"{cat}: documento aparenta não estar íntegro.")
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: documento aparenta não estar íntegro.")
 
-    # 2. Validade temporal (comprovante de residência e holerite)
+    # 2. Validade temporal
     for cat in CATEGORIAS_COM_VALIDADE_TEMPORAL:
         dados = dados_por_categoria.get(cat)
         if not dados:
             continue
         data_emissao = _parse_data_br(dados.get("data_emissao"))
         if data_emissao is None:
-            inconsistencias.append(f"{cat}: data de emissão não identificada.")
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: data de emissão não identificada.")
             continue
         dias = (datetime.now() - data_emissao).days
         if dias > VALIDADE_MAXIMA_DIAS:
-            inconsistencias.append(f"{cat}: documento emitido há {dias} dias (limite: {VALIDADE_MAXIMA_DIAS}).")
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: documento emitido há {dias} dias (limite: {VALIDADE_MAXIMA_DIAS}).")
 
     # 3. Consistência financeira (holerite)
     holerite = dados_por_categoria.get("HOLERITE")
-    renda_bruta_candidato = None
+    renda_bruta = None
     if holerite:
-        renda_bruta_candidato = _valor_para_float(holerite.get("renda_bruta"), default=None)
+        renda_bruta = _valor_para_float(holerite.get("renda_bruta"), default=None)
         renda_liquida = _valor_para_float(holerite.get("renda_liquida"), default=None)
-        if renda_bruta_candidato is not None and renda_liquida is not None:
-            if renda_liquida > renda_bruta_candidato:
+        if renda_bruta is not None and renda_liquida is not None:
+            if renda_liquida > renda_bruta:
                 inconsistencias.append(
-                    f"Renda líquida (R$ {renda_liquida:.2f}) maior que a renda bruta (R$ {renda_bruta_candidato:.2f})."
+                    f"[{nome_pessoa}] Renda líquida (R$ {renda_liquida:.2f}) maior que a renda bruta (R$ {renda_bruta:.2f})."
                 )
 
-    # 4. Teto de elegibilidade — renda per capita
-    renda_per_capita = None
-    if renda_bruta_candidato is not None:
-        renda_total = renda_bruta_candidato + sum(
-            _valor_para_float(m.renda_declarada) for m in membros_familia
-        )
-        num_membros = 1 + len(membros_familia)
-        renda_per_capita = round(renda_total / num_membros, 2)
-
-        limite = float(processo.renda_per_capita_limite) if processo.renda_per_capita_limite else None
-        if limite is not None and renda_per_capita > limite:
-            return ResultadoAuditoria(
-                status_geral="NAO_APTO",
-                parecer=(
-                    f"Renda per capita calculada (R$ {renda_per_capita:.2f}) ultrapassa o "
-                    f"limite máximo do processo (R$ {limite:.2f})."
-                ),
-                inconsistencias=inconsistencias,
-                renda_per_capita=renda_per_capita,
-            )
-    else:
-        inconsistencias.append("Renda per capita não calculada — holerite não processado ou renda_bruta ausente.")
-
-    # 5. Validação de identidade (RG ou CNH vs. cadastro)
+    # 4. Validação de identidade (RG ou CNH vs. cadastro esperado)
     doc_identidade = dados_por_categoria.get("RG") or dados_por_categoria.get("CNH")
     if doc_identidade:
         cpf_documento = _normalizar_cpf(doc_identidade.get("cpf"))
-        cpf_cadastro = _normalizar_cpf(getattr(candidato, "cpf", None))
+        cpf_esperado = _normalizar_cpf(cpf_cadastro)
         nome_documento = _normalizar_nome(doc_identidade.get("nome"))
-        nome_cadastro = _normalizar_nome(candidato.nome_completo)
+        nome_esperado = _normalizar_nome(nome_pessoa)
 
-        if cpf_cadastro is None:
-            inconsistencias.append("CPF não cadastrado no perfil do candidato — identidade não confirmada.")
-        elif cpf_documento and cpf_documento != cpf_cadastro:
-            inconsistencias.append("CPF do documento de identidade diverge do CPF cadastrado.")
+        if cpf_esperado and cpf_documento and cpf_documento != cpf_esperado:
+            inconsistencias.append(f"[{nome_pessoa}] CPF do documento diverge do CPF informado no cadastro.")
 
-        if nome_documento and nome_cadastro and nome_documento != nome_cadastro:
-            inconsistencias.append("Nome do documento de identidade diverge do nome cadastrado.")
+        if nome_documento and nome_esperado and nome_documento != nome_esperado:
+            inconsistencias.append(f"[{nome_pessoa}] Nome do documento ({nome_documento}) diverge do nome cadastrado ({nome_esperado}).")
     else:
-        inconsistencias.append("Nenhum documento de identidade (RG/CNH) processado com sucesso.")
+        inconsistencias.append(f"[{nome_pessoa}] Nenhum documento de identidade (RG/CNH) processado com sucesso.")
+
+    return renda_bruta
+
+
+def auditar_inscricao(candidato, documentos_candidato, membros_familia, documentos_membros, processo) -> ResultadoAuditoria:
+    """
+    candidato: objeto Usuarios (dono da inscrição)
+    documentos_candidato: lista de tuplas
+    membros_familia: lista de MembrosFamilia
+    documentos_membros: dict {membro_id: lista de tuplas de analise}
+    processo: objeto ProcessosBolsa
+    """
+    inconsistencias = []
+
+    # Auditar Candidato
+    renda_bruta_candidato = _validar_lote_documentos(
+        documentos=documentos_candidato, 
+        nome_pessoa=candidato.nome_completo, 
+        cpf_cadastro=getattr(candidato, "cpf", None),
+        inconsistencias=inconsistencias
+    )
+    
+    # Se o CPF principal não estiver no banco, a gente avisa explicitamente pro titular
+    if not getattr(candidato, "cpf", None):
+        inconsistencias.append(f"[{candidato.nome_completo}] CPF não cadastrado no perfil do candidato — identidade não confirmada.")
+
+    renda_total = 0.0
+    if renda_bruta_candidato is not None:
+        renda_total += renda_bruta_candidato
+    else:
+        inconsistencias.append(f"[{candidato.nome_completo}] Renda bruta não identificada (holerite ausente ou não lido).")
+
+    # Auditar Membros da Família
+    for membro in membros_familia:
+        docs_do_membro = documentos_membros.get(membro.id, [])
+        renda_bruta_membro = _validar_lote_documentos(
+            documentos=docs_do_membro,
+            nome_pessoa=membro.nome_completo,
+            cpf_cadastro=None, # Apenas valida se o nome bater, já que membro não tem CPF explícito salvo no banco ainda
+            inconsistencias=inconsistencias
+        )
+        
+        # A renda contabilizada para a família prefere o holerite lido, senão cai pro valor que o candidato declarou na tela
+        if renda_bruta_membro is not None:
+            renda_total += renda_bruta_membro
+        else:
+            renda_declarada = _valor_para_float(membro.renda_declarada, default=0.0)
+            renda_total += renda_declarada
+            if renda_declarada > 0:
+                inconsistencias.append(f"[{membro.nome_completo}] Holerite não extraído. Usando renda declarada manualmente (R$ {renda_declarada:.2f}).")
+
+
+    # Cálculo final do teto
+    num_membros = 1 + len(membros_familia)
+    renda_per_capita = round(renda_total / num_membros, 2)
+
+    limite = float(processo.renda_per_capita_limite) if processo.renda_per_capita_limite else None
+    
+    if limite is not None and renda_per_capita > limite:
+        return ResultadoAuditoria(
+            status_geral="NAO_APTO",
+            parecer=(
+                f"Renda per capita calculada (R$ {renda_per_capita:.2f}) ultrapassa o "
+                f"limite máximo do processo (R$ {limite:.2f})."
+            ),
+            inconsistencias=inconsistencias,
+            renda_per_capita=renda_per_capita,
+        )
 
     if inconsistencias:
         return ResultadoAuditoria(

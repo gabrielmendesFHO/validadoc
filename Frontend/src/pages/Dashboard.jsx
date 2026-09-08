@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileUp, LogOut, Search, ShieldCheck } from "lucide-react";
+import { FileUp, LogOut, Search, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import "./Dashboard.css";
 
@@ -61,9 +61,25 @@ export default function Dashboard({
             <h1>Bem-vindo, {primeiroNome}</h1>
             <p className="muted">Inicie uma validação ou confira o histórico.</p>
           </div>
-          <button className="primary-button" onClick={() => navigate("/upload")}>
-            <FileUp size={16} /> Validar documento
-          </button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {usuario?.perfil === "ADMIN" && (
+              <button
+                className="primary-button"
+                onClick={() => navigate("/pre-cadastro")}
+                style={{ background: "#6366f1" }}
+              >
+                <UserPlus size={16} /> Pré-cadastrar candidato
+              </button>
+            )}
+            <button className="primary-button" onClick={() => navigate("/upload")}>
+              <FileUp size={16} /> Validar documento
+            </button>
+            {usuario?.perfil === "CANDIDATO" && (
+              <button className="primary-button" onClick={() => navigate("/familia")} style={{ background: "#10b981" }}>
+                <Users size={16} /> Membros da família
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="summary-grid">

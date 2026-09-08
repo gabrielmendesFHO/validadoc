@@ -18,7 +18,11 @@ from .models import (
 engine = create_engine(
     settings.database_url,
     future=True,
-    pool_pre_ping=True,
+    pool_pre_ping=True,       # Testa a conexão antes de usar (você já tinha)
+    pool_recycle=1800,        # Recicla conexões a cada 30 minutos (Evita o WinError 10054)
+    pool_timeout=30,          # Espera até 30 segundos por uma conexão livre
+    pool_size=10,             # Mantém até 10 conexões abertas
+    max_overflow=20           # Permite até 20 conexões extras em picos de uso
 )
 
 reflection_metadata = MetaData()
