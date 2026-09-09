@@ -105,6 +105,7 @@ class MembrosFamilia(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     inscricao_id = Column(Integer, ForeignKey("inscricoes.id"), nullable=False)
     nome_completo = Column(String(255), nullable=False)
+    cpf = Column(String(14), nullable=True)
     parentesco = Column(String(50), nullable=True)
     renda_declarada = Column(DECIMAL(10, 2), nullable=True)
     criado_em = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))

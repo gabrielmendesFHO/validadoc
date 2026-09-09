@@ -2,7 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 
-export default function Login() {
+export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState(null);
@@ -23,6 +23,7 @@ export default function Login() {
 
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("usuario", JSON.stringify(data.usuario));
+      onLogin(data.usuario);
       navigate("/dashboard");
     } catch (err) {
       setErro(err.response?.data?.detail || "Não foi possível fazer login.");

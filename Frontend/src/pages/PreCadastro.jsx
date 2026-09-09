@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { UserPlus, ShieldCheck, ArrowLeft, Check } from "lucide-react";
 import api from "../api/client";
 
-export default function PreCadastro({ onLogout }) {
+export default function PreCadastro() {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");

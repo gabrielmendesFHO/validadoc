@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from ..models import (
     Usuarios,
 )
 from ..services.regras_negocio import auditar_inscricao
+from ..services.image_processing import preparar_para_ia_multimodal
+from ..services.gemini_service import GeminiExtractionError, extrair_dados_documento
 
 router = APIRouter(prefix="/inscricoes", tags=["Inscrições"])
 
@@ -36,6 +38,7 @@ TITULOS_CHECKLIST = {
 
 class MembroFamiliaIn(BaseModel):
     nome_completo: str
+    cpf: str | None = None
     parentesco: str | None = None
     renda_declarada: float | None = None
 
@@ -123,6 +126,48 @@ def metricas_dashboard(
         },
         "historico": historico,
     }
+
+
+
+@router.post("/{inscricao_id}/membros/extrair-documento")
+async def extrair_documento_membro(
+    inscricao_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+):
+    """Recebe foto/PDF do RG ou CNH de um familiar, extrai nome e CPF via Gemini
+    e devolve os dados para preencher o formulário automaticamente."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+
+    conteudo = await file.read()
+    if len(conteudo) == 0:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+
+    # Pré-processamento de imagem (deskew + contraste), PDF passa direto
+    conteudo_ia, mime_ia = preparar_para_ia_multimodal(conteudo, file.filename or "doc", file.content_type or "image/jpeg")
+
+    try:
+        dados = extrair_dados_documento(conteudo_ia, mime_ia, "IDENTIDADE_FAMILIAR")
+    except GeminiExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Gemini pode retornar o nome em "nome" ou, no caso de CNH, também em "nome"
+    nome = dados.get("nome") or dados.get("nome_completo") or ""
+    cpf = dados.get("cpf") or None
+    tipo_detectado = dados.get("tipo_documento") or "IDENTIDADE"
+
+    if not nome:
+        raise HTTPException(
+            status_code=422,
+            detail="Não foi possível identificar o nome no documento. Tente uma foto mais nítida ou preencha manualmente.",
+        )
+
+    return {"nome": nome, "cpf": cpf, "tipo_detectado": tipo_detectado}
 
 
 def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
@@ -315,6 +360,7 @@ def editar_membro(
         raise HTTPException(status_code=404, detail="Membro familiar não encontrado para esta inscrição.")
 
     membro.nome_completo = membro_in.nome_completo
+    membro.cpf = membro_in.cpf
     membro.parentesco = membro_in.parentesco
     membro.renda_declarada = membro_in.renda_declarada
     db.commit()

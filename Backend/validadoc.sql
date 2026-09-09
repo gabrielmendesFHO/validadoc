@@ -197,6 +197,7 @@ CREATE TABLE `membros_familia` (
   `id` int(11) NOT NULL,
   `inscricao_id` int(11) NOT NULL,
   `nome_completo` varchar(255) NOT NULL,
+  `cpf` varchar(14) DEFAULT NULL,
   `parentesco` varchar(50) DEFAULT NULL,
   `renda_declarada` decimal(10,2) DEFAULT NULL,
   `criado_em` timestamp NOT NULL DEFAULT current_timestamp()
@@ -206,14 +207,14 @@ CREATE TABLE `membros_familia` (
 -- Despejando dados para a tabela `membros_familia`
 --
 
-INSERT INTO `membros_familia` (`id`, `inscricao_id`, `nome_completo`, `parentesco`, `renda_declarada`, `criado_em`) VALUES
-(1, 1, 'Jocelina', 'Mãe', 7500.00, '2026-08-04 11:32:57'),
-(2, 1, 'Beto', 'Pai', 2800.00, '2026-08-04 11:33:45'),
-(3, 1, 'Gabi', 'Irmã', 0.00, '2026-08-04 11:34:08'),
-(4, 2, 'Nicolle Amy', 'Esposa', 1000.00, '2026-08-10 16:44:02'),
-(5, 3, 'Nicolle Amy', 'Esposa', 1000.00, '2026-08-10 16:45:25'),
-(6, 3, 'jessi Amy', 'fio', 1000.00, '2026-08-10 16:45:40'),
-(7, 3, 'bartolomeu Amy', 'fio', 0.00, '2026-08-10 16:45:47');
+INSERT INTO `membros_familia` (`id`, `inscricao_id`, `nome_completo`, `cpf`, `parentesco`, `renda_declarada`, `criado_em`) VALUES
+(1, 1, 'Jocelina', NULL, 'Mãe', 7500.00, '2026-08-04 11:32:57'),
+(2, 1, 'Beto', NULL, 'Pai', 2800.00, '2026-08-04 11:33:45'),
+(3, 1, 'Gabi', NULL, 'Irmã', 0.00, '2026-08-04 11:34:08'),
+(4, 2, 'Nicolle Amy', NULL, 'Esposa', 1000.00, '2026-08-10 16:44:02'),
+(5, 3, 'Nicolle Amy', NULL, 'Esposa', 1000.00, '2026-08-10 16:45:25'),
+(6, 3, 'jessi Amy', NULL, 'fio', 1000.00, '2026-08-10 16:45:40'),
+(7, 3, 'bartolomeu Amy', NULL, 'fio', 0.00, '2026-08-10 16:45:47');
 
 -- --------------------------------------------------------
 

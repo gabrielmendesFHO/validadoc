@@ -183,6 +183,43 @@ def auditar_inscricao(candidato, documentos_candidato, membros_familia, document
             if renda_declarada > 0:
                 inconsistencias.append(f"[{membro.nome_completo}] Holerite não extraído. Usando renda declarada manualmente (R$ {renda_declarada:.2f}).")
 
+    # Auditoria de Filiação: compara nomes dos membros progenitores com o RG do candidato
+    dados_por_categoria_candidato = {
+        cat: dados
+        for cat, dados, status_proc, _ in documentos_candidato
+        if status_proc == "CONCLUIDO" and dados
+    }
+    rg_candidato = dados_por_categoria_candidato.get("RG") or {}
+    nome_mae_rg = _normalizar_nome(rg_candidato.get("nome_mae"))
+    nome_pai_rg = _normalizar_nome(rg_candidato.get("nome_pai"))
+
+    PARENTESCOS_MAE = {"MÃE", "MAE", "MÃE BIOLÓGICA", "MAE BIOLOGICA", "MÃEBIOLÓGICA"}
+    PARENTESCOS_PAI = {"PAI", "PAI BIOLÓGICO", "PAI BIOLOGICO"}
+
+    for membro in membros_familia:
+        parentesco_norm = (getattr(membro, "parentesco", None) or "").strip().upper()
+        nome_membro = _normalizar_nome(membro.nome_completo)
+
+        if parentesco_norm in PARENTESCOS_MAE:
+            if nome_mae_rg and nome_membro and nome_membro != nome_mae_rg:
+                inconsistencias.append(
+                    f"[{membro.nome_completo}] Nome declarado como Mãe diverge do nome da mãe no RG do candidato ({rg_candidato.get('nome_mae')})."
+                )
+            elif not nome_mae_rg:
+                inconsistencias.append(
+                    f"[{membro.nome_completo}] Não foi possível verificar filiação: nome da mãe não encontrado no RG do candidato."
+                )
+
+        elif parentesco_norm in PARENTESCOS_PAI:
+            if nome_pai_rg and nome_membro and nome_membro != nome_pai_rg:
+                inconsistencias.append(
+                    f"[{membro.nome_completo}] Nome declarado como Pai diverge do nome do pai no RG do candidato ({rg_candidato.get('nome_pai')})."
+                )
+            elif not nome_pai_rg:
+                inconsistencias.append(
+                    f"[{membro.nome_completo}] Não foi possível verificar filiação: nome do pai não encontrado no RG do candidato."
+                )
+
 
     # Cálculo final do teto
     num_membros = 1 + len(membros_familia)

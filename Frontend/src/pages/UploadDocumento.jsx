@@ -159,12 +159,14 @@ export default function UploadDocumento({ usuario }) {
   const agendarPoll = useCallback((id) => {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
 
-    pollTimerRef.current = setTimeout(async () => {
+    async function consultarNovamente() {
       const aindaProcessando = await carregarChecklist(id);
       if (aindaProcessando) {
-        agendarPoll(id);
+        pollTimerRef.current = setTimeout(consultarNovamente, POLL_INTERVAL_MS);
       }
-    }, POLL_INTERVAL_MS);
+    }
+
+    pollTimerRef.current = setTimeout(consultarNovamente, POLL_INTERVAL_MS);
   }, [carregarChecklist]);
 
   useEffect(() => {

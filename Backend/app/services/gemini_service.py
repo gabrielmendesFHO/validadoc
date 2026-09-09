@@ -66,6 +66,7 @@ _CAMPOS_CHAVE_POR_CATEGORIA = {
     "RG": ("nome", "data_nascimento", "nome_pai", "nome_mae"),
     "RG_VERSO": ("numero_rg", "cpf"),
     "CNH": ("nome", "numero_cnh", "cpf"),
+    "IDENTIDADE_FAMILIAR": ("nome", "cpf", "tipo_documento"),
     "RESIDENCIA": ("nome_titular", "endereco", "data_emissao"),
     "HOLERITE": ("nome", "cpf", "renda_bruta", "renda_liquida", "data_emissao"),
 }
@@ -143,6 +144,25 @@ _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
                 "cpf": {"type": "STRING"},
             },
             "required": ["legibilidade", "qualidade_imagem", "documento_integro"],
+        },
+    },
+    "IDENTIDADE_FAMILIAR": {
+        "prompt": _INSTRUCAO_BASE
+        + " Analise uma identidade brasileira enviada para cadastro de familiar. "
+        + "Classifique obrigatoriamente o documento como 'RG' ou 'CNH' em tipo_documento. "
+        + "Extraia nome e CPF quando estiverem visíveis; não invente valores.",
+        "schema": {
+            "type": "OBJECT",
+            "properties": {
+                **_CAMPOS_COMUNS,
+                "nome": {"type": "STRING"},
+                "cpf": {"type": "STRING"},
+                "tipo_documento": {
+                    "type": "STRING",
+                    "description": "Tipo de documento identificado: RG ou CNH.",
+                },
+            },
+            "required": ["legibilidade", "qualidade_imagem", "documento_integro", "tipo_documento"],
         },
     },
     "RESIDENCIA": {

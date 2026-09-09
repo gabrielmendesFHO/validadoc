@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, FileUp, Pencil, Plus, Save, Trash2, Users, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 
 const FORMULARIO_VAZIO = {
   nome_completo: "",
+  cpf: "",
   parentesco: "",
   renda_declarada: "",
 };
@@ -18,6 +19,8 @@ export default function Familia() {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  const [leituraDoc, setLeituraDoc] = useState({ carregando: false, sucesso: null, erro: null });
+  const fileInputRef = useRef(null);
 
   async function carregarFamilia() {
     try {
@@ -33,7 +36,17 @@ export default function Familia() {
   }
 
   useEffect(() => {
-    carregarFamilia();
+    let ativo = true;
+
+    async function iniciar() {
+      await carregarFamilia();
+      if (!ativo) return;
+    }
+
+    iniciar();
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   function alterarCampo(event) {
@@ -45,6 +58,7 @@ export default function Familia() {
     setMembroEditando(membro.id);
     setFormulario({
       nome_completo: membro.nome_completo || "",
+      cpf: membro.cpf || "",
       parentesco: membro.parentesco || "",
       renda_declarada: membro.renda_declarada ?? "",
     });
@@ -57,6 +71,30 @@ export default function Familia() {
     setErro("");
   }
 
+  async function lerDocumentoComIA(event) {
+    const arquivo = event.target.files?.[0];
+    if (!arquivo || !inscricaoId) return;
+    // Limpa o input para permitir reenvio do mesmo arquivo
+    event.target.value = "";
+
+    setLeituraDoc({ carregando: true, sucesso: null, erro: null });
+    const formData = new FormData();
+    formData.append("file", arquivo);
+
+    try {
+      const { data } = await api.post(
+        `/inscricoes/${inscricaoId}/membros/extrair-documento`,
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      setFormulario((atual) => ({ ...atual, nome_completo: data.nome, cpf: data.cpf || "" }));
+      setLeituraDoc({ carregando: false, sucesso: `✅ Nome identificado: ${data.nome}`, erro: null });
+    } catch (err) {
+      const msg = err.response?.data?.detail || "Não foi possível ler o documento.";
+      setLeituraDoc({ carregando: false, sucesso: null, erro: msg });
+    }
+  }
+
   async function salvarMembro(event) {
     event.preventDefault();
     if (!inscricaoId) return;
@@ -65,6 +103,7 @@ export default function Familia() {
     setErro("");
     const payload = {
       nome_completo: formulario.nome_completo.trim(),
+      cpf: formulario.cpf.trim() || null,
       parentesco: formulario.parentesco.trim() || null,
       renda_declarada:
         formulario.renda_declarada === "" || formulario.renda_declarada === null
@@ -233,6 +272,60 @@ export default function Familia() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {/* Botão de leitura por IA */}
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                style={{ display: "none" }}
+                onChange={lerDocumentoComIA}
+              />
+              <button
+                type="button"
+                disabled={leituraDoc.carregando || !inscricaoId}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  background: leituraDoc.carregando ? "#e0e7ff" : "#eef2ff",
+                  color: "#4338ca",
+                  border: "1px solid #c7d2fe",
+                  borderRadius: "8px",
+                  padding: "9px 16px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  cursor: leituraDoc.carregando ? "not-allowed" : "pointer",
+                  width: "100%",
+                  justifyContent: "center",
+                }}
+              >
+                {leituraDoc.carregando ? (
+                  <>
+                    <span style={{ display: "inline-block", width: "14px", height: "14px", border: "2px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                    Lendo documento com IA...
+                  </>
+                ) : (
+                  <>📷 Preencher com foto do RG / CNH</>
+                )}
+              </button>
+
+              {/* Banner de feedback da leitura IA */}
+              {leituraDoc.sucesso && (
+                <div style={{ marginTop: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", padding: "9px 12px", borderRadius: "8px", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{leituraDoc.sucesso}</span>
+                  <button type="button" onClick={() => setLeituraDoc((s) => ({ ...s, sucesso: null }))} style={{ background: "none", border: "none", cursor: "pointer", color: "#15803d", padding: "0 0 0 8px", fontSize: "16px", lineHeight: 1 }}>×</button>
+                </div>
+              )}
+              {leituraDoc.erro && (
+                <div style={{ marginTop: "8px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "9px 12px", borderRadius: "8px", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>{leituraDoc.erro}</span>
+                  <button type="button" onClick={() => setLeituraDoc((s) => ({ ...s, erro: null }))} style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626", padding: "0 0 0 8px", fontSize: "16px", lineHeight: 1 }}>×</button>
+                </div>
+              )}
+            </div>
+
             {/* Campo 1: Nome Completo */}
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               <label style={{ fontSize: "13px", fontWeight: "500", color: "#374151" }}>
@@ -257,6 +350,29 @@ export default function Familia() {
                 }}
               />
             </div>
+
+            {formulario.cpf && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "500", color: "#374151" }}>
+                  CPF identificado no documento
+                </label>
+                <input
+                  type="text"
+                  value={formulario.cpf}
+                  readOnly
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    padding: "10px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid #bbf7d0",
+                    fontSize: "14px",
+                    background: "#f0fdf4",
+                    color: "#166534",
+                  }}
+                />
+              </div>
+            )}
 
             {/* Linha com 2 colunas: Parentesco e Renda */}
             <div

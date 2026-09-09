@@ -1,5 +1,6 @@
 import "./App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useState } from "react";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import UploadDocumento from "./pages/UploadDocumento";
@@ -24,18 +25,27 @@ function usuarioAtual() {
   return JSON.parse(localStorage.getItem("usuario") || "null");
 }
 
-function logout() {
+function limparSessao() {
   localStorage.removeItem("access_token");
   localStorage.removeItem("usuario");
-  window.location.assign("/login");
 }
 
 export default function App() {
-  const usuario = usuarioAtual();
+  const [usuario, setUsuario] = useState(usuarioAtual);
+
+  function logout() {
+    limparSessao();
+    window.location.assign("/login");
+  }
+
+  function concluirLogin(usuarioAutenticado) {
+    setUsuario(usuarioAutenticado);
+  }
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Login onLogin={concluirLogin} />} />
         <Route
           path="/dashboard"
           element={
@@ -51,7 +61,7 @@ export default function App() {
           path="/pre-cadastro"
           element={
             <RotaAdmin>
-              <PreCadastro onLogout={logout} />
+              <PreCadastro />
             </RotaAdmin>
           }
         />
