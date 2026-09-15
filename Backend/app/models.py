@@ -1,3 +1,4 @@
+import enum
 from sqlalchemy import (
     Column,
     Date,
@@ -16,6 +17,21 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+
+# --- ENUMS DE REGRA DE NEGÓCIO ---
+
+class StatusJornada(enum.Enum):
+    PRE_CADASTRADO = "PRE_CADASTRADO"
+    KYC_PENDENTE = "KYC_PENDENTE"
+    KYC_VALIDADO = "KYC_VALIDADO"
+    FAMILIA_PENDENTE = "FAMILIA_PENDENTE"
+    DOCS_PENDENTES = "DOCS_PENDENTES"
+    PRONTO_AUDITORIA = "PRONTO_AUDITORIA"
+    CONCLUIDO = "CONCLUIDO"
+    ABANDONO = "ABANDONO"
+
+
+# --- MODELOS DE BANCO DE DADOS ---
 
 class Instituicoes(Base):
     __tablename__ = "instituicoes"
@@ -87,6 +103,21 @@ class Inscricoes(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     processo_id = Column(Integer, ForeignKey("processos_bolsa.id"), nullable=False)
     candidato_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    
+    # --- NOVAS COLUNAS DO FUNIL DE CONVERSÃO ---
+    status_funil = Column(
+        Enum(StatusJornada, name="status_jornada_enum"), 
+        nullable=False, 
+        server_default=text("'PRE_CADASTRADO'")
+    )
+    ultima_atividade = Column(
+        TIMESTAMP, 
+        nullable=False, 
+        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+    )
+    alertas_dificuldade = Column(Integer, nullable=False, server_default=text("0"))
+    # -------------------------------------------
+
     status_geral = Column(String(50), nullable=False, server_default=text("'PENDENTE'"))
     renda_per_capita_calculada = Column(DECIMAL(10, 2), nullable=True)
     parecer = Column(Text, nullable=True)
