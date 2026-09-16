@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..dependencies import exigir_perfil, get_current_user
-from ..models import Usuarios
+from ..models import Inscricoes, Usuarios
 from ..security import criar_access_token, hash_senha, verificar_senha
 
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
@@ -51,6 +51,19 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="E-mail ou senha incorretos.",
         )
+
+    if usuario.perfil == "CANDIDATO":
+        inscricao = (
+            db.query(Inscricoes)
+            .filter_by(candidato_id=usuario.id)
+            .order_by(Inscricoes.id.desc())
+            .first()
+        )
+        if inscricao:
+            from datetime import datetime
+            inscricao.ultimo_acesso = datetime.now()
+            db.add(inscricao)
+            db.commit()
 
     token = criar_access_token({"sub": str(usuario.id), "perfil": usuario.perfil})
     return {

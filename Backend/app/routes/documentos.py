@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_db
-from ..dependencies import get_current_user
+from ..dependencies import get_current_user, validar_status_funil
 from ..models import (
     AnalisesOcr,
     DocumentoBinario,
@@ -15,9 +15,10 @@ from ..models import (
     DocumentosSolicitados,
     Inscricoes,
     MembrosFamilia,
+    StatusJornada,
     Usuarios,
 )
-from ..services.crypto import criptografar, descriptografar
+from ..services.crypto import CriptografiaNaoConfiguradaError, criptografar, descriptografar
 from ..services.gemini_service import (
     GeminiExtractionError,
     extrair_dados_documento,
@@ -108,6 +109,14 @@ def _processar_ia_em_background(
                     candidato.cpf = cpf_extraido
                 db.add(candidato)
 
+            # A validação do documento de identidade conclui o KYC e libera
+            # imediatamente o cadastro do grupo familiar.
+            if membro_id is None and nome_documento in {"RG", "CNH"}:
+                inscricao = db.get(Inscricoes, inscricao_id)
+                if inscricao and inscricao.status_funil == StatusJornada.KYC_PENDENTE:
+                    inscricao.status_funil = StatusJornada.FAMILIA_PENDENTE
+                    db.add(inscricao)
+
             analise = AnalisesOcr(
                 documento_id=documento_id,
                 dados_extraidos=json.dumps(dados_extraidos, ensure_ascii=False),
@@ -136,8 +145,25 @@ def _processar_ia_em_background(
                 db.commit()
         except Exception:
             db.rollback()
-    except Exception:
+    except Exception as exc:
+        # Não deixar o documento em PROCESSANDO_IA para sempre quando ocorrer
+        # uma falha de rede, banco ou resposta inesperada do provedor de IA.
         db.rollback()
+        try:
+            documento = db.get(DocumentosEnviados, documento_id)
+            if documento:
+                documento.status_processamento = "ERRO_EXTRACAO"
+                documento.mensagem_erro = "Não foi possível concluir a análise automática. Tente reenviar o documento."
+                analise = AnalisesOcr(
+                    documento_id=documento_id,
+                    status_auditoria="ERRO",
+                    parecer=f"Falha interna no processamento: {type(exc).__name__}",
+                )
+                db.add(documento)
+                db.add(analise)
+                db.commit()
+        except Exception:
+            db.rollback()
     finally:
         db.close()
 
@@ -165,6 +191,15 @@ async def upload_documento(
     solicitado = db.get(DocumentosSolicitados, solicitado_id)
     if solicitado is None or solicitado.processo_id != inscricao.processo_id:
         raise HTTPException(status_code=400, detail="solicitado_id inválido para esta inscrição.")
+
+    # Enquanto o KYC estiver pendente, o candidato só pode enviar o seu
+    # documento de identidade; nenhuma etapa avançada pode ser iniciada.
+    if usuario.perfil == "CANDIDATO" and inscricao.status_funil in {
+        StatusJornada.PRE_CADASTRADO,
+        StatusJornada.KYC_PENDENTE,
+    }:
+        if membro_id is not None or solicitado.nome_documento not in {"RG", "RG_VERSO", "CNH"}:
+            raise HTTPException(status_code=403, detail="Conclua a validação de identidade (KYC) antes de enviar outros documentos.")
 
     conteudo_original = await file.read()
     if not conteudo_original:
@@ -213,6 +248,15 @@ async def upload_documento(
         db.add(novo_documento)
         db.flush()
 
+        if (
+            usuario.perfil == "CANDIDATO"
+            and inscricao.status_funil == StatusJornada.PRE_CADASTRADO
+            and membro_id is None
+            and solicitado.nome_documento in {"RG", "RG_VERSO", "CNH"}
+        ):
+            inscricao.status_funil = StatusJornada.KYC_PENDENTE
+            db.add(inscricao)
+
         binario = DocumentoBinario(
             documento_id=novo_documento.id,
             conteudo_criptografado=criptografar(conteudo_original),
@@ -223,6 +267,12 @@ async def upload_documento(
         db.add(binario)
         db.commit()
         db.refresh(novo_documento)
+    except CriptografiaNaoConfiguradaError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Criptografia de documentos indisponível. Contate o administrador.",
+        ) from exc
     except IntegrityError:
         db.rollback()
         raise HTTPException(

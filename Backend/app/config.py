@@ -3,8 +3,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ENV_FILE = PROJECT_ROOT / ".env"
+
+ENV_FILE = BACKEND_ROOT / ".env" if (BACKEND_ROOT / ".env").exists() else (PROJECT_ROOT / ".env")
 
 load_dotenv(ENV_FILE)
 
@@ -17,6 +19,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expira_minutos: int = 480  # 8h
     encryption_key: str = ""
+
+    # Configurações de E-mail (SMTP)
+    smtp_server: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "no-reply@validadoc.com.br"
 
     class Config:
         env_file = ENV_FILE

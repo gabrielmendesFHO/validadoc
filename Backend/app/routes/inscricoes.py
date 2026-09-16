@@ -1,12 +1,12 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..dependencies import exigir_perfil, get_current_user
+from ..dependencies import exigir_jornada_minima, exigir_perfil, get_current_user
 from ..models import (
     AnalisesOcr,
     DocumentosEnviados,
@@ -14,6 +14,7 @@ from ..models import (
     Inscricoes,
     MembrosFamilia,
     ProcessosBolsa,
+    StatusJornada,
     Usuarios,
 )
 from ..services.regras_negocio import auditar_inscricao
@@ -57,7 +58,7 @@ def minha_inscricao(
         .first()
     )
     if inscricao is not None:
-        return {"id": inscricao.id, "processo_id": inscricao.processo_id, "status_geral": inscricao.status_geral}
+        return {"id": inscricao.id, "processo_id": inscricao.processo_id, "status_geral": inscricao.status_geral, "status_funil": inscricao.status_funil.value}
 
     processo = db.query(ProcessosBolsa).order_by(ProcessosBolsa.id.desc()).first()
     if processo is None:
@@ -67,7 +68,7 @@ def minha_inscricao(
     db.add(nova_inscricao)
     db.commit()
     db.refresh(nova_inscricao)
-    return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral}
+    return {"id": nova_inscricao.id, "processo_id": nova_inscricao.processo_id, "status_geral": nova_inscricao.status_geral, "status_funil": nova_inscricao.status_funil.value}
 
 
 @router.get("/dashboard/metricas")
@@ -128,13 +129,143 @@ def metricas_dashboard(
     }
 
 
+@router.get("/minha/jornada")
+def minha_jornada(
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+):
+    """Resume a etapa atual e o próximo destino seguro da jornada."""
+    inscricao = db.query(Inscricoes).filter_by(candidato_id=usuario.id).order_by(Inscricoes.id.desc()).first()
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Nenhuma inscrição encontrada.")
+    proximo_destino = {
+        StatusJornada.PRE_CADASTRADO: "/kyc", StatusJornada.KYC_PENDENTE: "/kyc",
+        StatusJornada.KYC_VALIDADO: "/familia", StatusJornada.FAMILIA_PENDENTE: "/familia",
+        StatusJornada.DOCS_PENDENTES: "/upload", StatusJornada.PRONTO_AUDITORIA: "/acompanhamento",
+        StatusJornada.CONCLUIDO: "/acompanhamento", StatusJornada.ABANDONO: "/acompanhamento",
+    }[inscricao.status_funil]
+    return {"inscricao_id": inscricao.id, "status_funil": inscricao.status_funil.value, "status_geral": inscricao.status_geral, "parecer": inscricao.parecer, "ultima_atividade": inscricao.ultima_atividade, "proximo_destino": proximo_destino}
+
+
+@router.get("/auditoria/fila")
+def fila_auditoria(
+    busca: str = Query(default="", max_length=100),
+    processo_id: int | None = None,
+    pagina: int = Query(default=1, ge=1),
+    por_pagina: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
+    """Fila real de inscrições que aguardam a auditoria da equipe."""
+    consulta = (
+        db.query(Inscricoes, Usuarios, ProcessosBolsa)
+        .join(Usuarios, Inscricoes.candidato_id == Usuarios.id)
+        .join(ProcessosBolsa, Inscricoes.processo_id == ProcessosBolsa.id)
+        .filter(Inscricoes.status_funil == StatusJornada.PRONTO_AUDITORIA)
+    )
+    if processo_id is not None:
+        consulta = consulta.filter(Inscricoes.processo_id == processo_id)
+    termo = busca.strip()
+    if termo:
+        consulta = consulta.filter(
+            Inscricoes.id == int(termo) if termo.isdigit() else Usuarios.nome_completo.ilike(f"%{termo}%")
+        )
+    total = consulta.count()
+    registros = (
+        consulta.order_by(Inscricoes.ultima_atividade.asc(), Inscricoes.id.asc())
+        .offset((pagina - 1) * por_pagina)
+        .limit(por_pagina)
+        .all()
+    )
+    return {
+        "itens": [
+            {
+                "inscricao_id": inscricao.id,
+                "candidato": candidato.nome_completo,
+                "processo": processo.nome,
+                "motivo": "Pronta para auditoria",
+                "data": inscricao.ultima_atividade,
+            }
+            for inscricao, candidato, processo in registros
+        ],
+        "pagina": pagina,
+        "por_pagina": por_pagina,
+        "total": total,
+    }
+
+
+@router.get("/dashboard/candidatos")
+def dashboard_candidatos(
+    busca: str = Query(default="", max_length=100),
+    pagina: int = Query(default=1, ge=1),
+    por_pagina: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
+    """Visão operacional por candidato: acesso, dificuldade e ausência."""
+    consulta = db.query(Inscricoes, Usuarios).join(Usuarios, Inscricoes.candidato_id == Usuarios.id)
+    termo = busca.strip()
+    if termo:
+        consulta = consulta.filter(Inscricoes.id == int(termo) if termo.isdigit() else Usuarios.nome_completo.ilike(f"%{termo}%"))
+    total = consulta.count()
+    registros = consulta.order_by(Inscricoes.ultima_atividade.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina).all()
+    limite_ausencia = datetime.now() - timedelta(days=7)
+    itens = []
+    for inscricao, candidato in registros:
+        docs = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao.id).all()
+        erros = sum(documento.status_processamento in {"REJEITADO", "ERRO_EXTRACAO"} for documento in docs)
+        dificuldade = inscricao.alertas_dificuldade > 0 or erros > 0
+        acessou = inscricao.ultimo_acesso is not None
+        ausente = not acessou or inscricao.ultimo_acesso < limite_ausencia
+        itens.append({
+            "inscricao_id": inscricao.id,
+            "candidato": candidato.nome_completo,
+            "email": candidato.email,
+            "status_funil": inscricao.status_funil.value,
+            "ultimo_acesso": inscricao.ultimo_acesso,
+            "acessou": acessou,
+            "com_dificuldade": dificuldade,
+            "ausente": ausente,
+            "documentos_com_erro": erros,
+        })
+    return {"itens": itens, "pagina": pagina, "por_pagina": por_pagina, "total": total}
+
+
+@router.post("/{inscricao_id}/familia/concluir")
+def concluir_familia(inscricao_id: int, db: Session = Depends(get_db), usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.FAMILIA_PENDENTE))):
+    """Confirma a composição familiar, inclusive quando o candidato mora só."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao.status_funil not in {StatusJornada.FAMILIA_PENDENTE, StatusJornada.KYC_VALIDADO}:
+        raise HTTPException(status_code=409, detail="A etapa de grupo familiar já foi concluída.")
+    inscricao.status_funil = StatusJornada.DOCS_PENDENTES
+    db.add(inscricao)
+    db.commit()
+    return {"status_funil": inscricao.status_funil.value, "proxima_etapa": "DOCUMENTOS"}
+
+
+@router.post("/{inscricao_id}/documentos/concluir")
+def concluir_documentos(inscricao_id: int, db: Session = Depends(get_db), usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.DOCS_PENDENTES))):
+    """Envia a inscrição à fila de auditoria quando todos os obrigatórios foram aprovados."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    obrigatorios = {s.id for s in db.query(DocumentosSolicitados).filter_by(processo_id=inscricao.processo_id).all() if s.obrigatorio}
+    pessoas = [None] + [m.id for m in db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()]
+    for membro_id in pessoas:
+        concluidos = {d.solicitado_id for d in db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id, membro_id=membro_id).all() if d.status_processamento == "CONCLUIDO"}
+        if obrigatorios - concluidos:
+            raise HTTPException(status_code=409, detail="Ainda existem documentos obrigatórios pendentes de validação.")
+    inscricao.status_funil = StatusJornada.PRONTO_AUDITORIA
+    db.add(inscricao)
+    db.commit()
+    return {"status_funil": inscricao.status_funil.value, "mensagem": "Documentos enviados para auditoria."}
+
+
 
 @router.post("/{inscricao_id}/membros/extrair-documento")
 async def extrair_documento_membro(
     inscricao_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     """Recebe foto/PDF do RG ou CNH de um familiar, extrai nome e CPF via Gemini
     e devolve os dados para preencher o formulário automaticamente."""
@@ -283,7 +414,7 @@ def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
 def checklist_documentos(
     inscricao_id: int,
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
@@ -326,7 +457,7 @@ def adicionar_membro(
     inscricao_id: int,
     membro: MembroFamiliaIn,
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
@@ -347,7 +478,7 @@ def editar_membro(
     membro_id: int,
     membro_in: MembroFamiliaIn,
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
@@ -373,7 +504,7 @@ def remover_membro(
     inscricao_id: int,
     membro_id: int,
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
@@ -397,7 +528,7 @@ def remover_membro(
 def listar_membros(
     inscricao_id: int,
     db: Session = Depends(get_db),
-    usuario: Usuarios = Depends(get_current_user),
+    usuario: Usuarios = Depends(exigir_jornada_minima(StatusJornada.KYC_VALIDADO)),
 ):
     inscricao = db.get(Inscricoes, inscricao_id)
     if inscricao is None:
@@ -493,6 +624,7 @@ def auditar_inscricao_endpoint(
     # Se faltar documento em qualquer um, trava a auditoria na hora
     if mensagens_falta:
         inscricao.status_geral = "PENDENTE"
+        inscricao.status_funil = StatusJornada.DOCS_PENDENTES
         inscricao.parecer = "Documentos obrigatórios pendentes:\n" + "\n".join(mensagens_falta)
         inscricao.inconsistencias = None
         db.commit()
@@ -514,6 +646,7 @@ def auditar_inscricao_endpoint(
         json.dumps(resultado.inconsistencias, ensure_ascii=False) if resultado.inconsistencias else None
     )
     inscricao.renda_per_capita_calculada = resultado.renda_per_capita
+    inscricao.status_funil = StatusJornada.CONCLUIDO
     db.commit()
     db.refresh(inscricao)
 
@@ -522,4 +655,149 @@ def auditar_inscricao_endpoint(
         "parecer": inscricao.parecer,
         "inconsistencias": resultado.inconsistencias,
         "renda_per_capita_calculada": inscricao.renda_per_capita_calculada,
+    }
+
+
+@router.get("/{inscricao_id}/kyc")
+def consultar_kyc(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+):
+    """Dados necessários para a tela de validação inicial de identidade."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+
+    solicitados = (
+        db.query(DocumentosSolicitados)
+        .filter(
+            DocumentosSolicitados.processo_id == inscricao.processo_id,
+            DocumentosSolicitados.nome_documento.in_(("RG", "RG_VERSO", "CNH")),
+        )
+        .order_by(DocumentosSolicitados.id)
+        .all()
+    )
+    ultimo_por_solicitado = {}
+    for documento in (
+        db.query(DocumentosEnviados)
+        .filter_by(inscricao_id=inscricao.id, membro_id=None)
+        .order_by(DocumentosEnviados.id.desc())
+        .all()
+    ):
+        ultimo_por_solicitado.setdefault(documento.solicitado_id, documento)
+
+    return {
+        "inscricao_id": inscricao.id,
+        "status_funil": inscricao.status_funil.value,
+        "documentos": [
+            {
+                "solicitado_id": solicitado.id,
+                "nome_documento": solicitado.nome_documento,
+                "obrigatorio": bool(solicitado.obrigatorio),
+                "documento_id": ultimo_por_solicitado[solicitado.id].id if solicitado.id in ultimo_por_solicitado else None,
+                "status": ultimo_por_solicitado[solicitado.id].status_processamento if solicitado.id in ultimo_por_solicitado else "PENDENTE",
+                "mensagem": ultimo_por_solicitado[solicitado.id].mensagem_erro if solicitado.id in ultimo_por_solicitado else None,
+            }
+            for solicitado in solicitados
+        ],
+    }
+
+
+@router.post("/{inscricao_id}/kyc/concluir")
+def concluir_kyc(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("CANDIDATO")),
+):
+    """Libera o grupo familiar após um RG ou CNH do titular ser validado."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    if inscricao.candidato_id != usuario.id:
+        raise HTTPException(status_code=403, detail="Você não tem acesso a esta inscrição.")
+    if inscricao.status_funil == StatusJornada.ABANDONO:
+        raise HTTPException(status_code=403, detail="Esta inscrição foi abandonada e não pode avançar nas etapas.")
+
+    identidade_validada = (
+        db.query(DocumentosEnviados)
+        .join(DocumentosSolicitados)
+        .filter(
+            DocumentosEnviados.inscricao_id == inscricao.id,
+            DocumentosEnviados.membro_id.is_(None),
+            DocumentosEnviados.status_processamento == "CONCLUIDO",
+            DocumentosSolicitados.nome_documento.in_(("RG", "CNH")),
+        )
+        .first()
+    )
+    if identidade_validada is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Aguarde a validação de um RG ou CNH aprovado antes de continuar.",
+        )
+
+    inscricao.status_funil = StatusJornada.FAMILIA_PENDENTE
+    db.add(inscricao)
+    db.commit()
+    return {
+        "status_funil": inscricao.status_funil.value,
+        "proxima_etapa": "FAMILIA",
+        "mensagem": "Identidade validada. Você já pode informar o grupo familiar.",
+    }
+
+
+@router.get("/{inscricao_id}/detalhe")
+def detalhe_inscricao(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if not inscricao:
+        raise HTTPException(status_code=404, detail="Inscricao nao encontrada")
+    
+    candidato = db.get(Usuarios, inscricao.candidato_id)
+    membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
+    processo = db.get(ProcessosBolsa, inscricao.processo_id)
+
+    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).order_by(DocumentosEnviados.id.desc()).all()
+
+    return {
+        "inscricao": {
+            "id": inscricao.id,
+            "status_geral": inscricao.status_geral,
+            "status_funil": inscricao.status_funil.value,
+            "renda_per_capita_calculada": inscricao.renda_per_capita_calculada,
+            "criado_em": inscricao.criado_em.isoformat() if inscricao.criado_em else None,
+            "parecer": inscricao.parecer
+        },
+        "candidato": {
+            "nome": candidato.nome_completo,
+            "cpf": candidato.cpf,
+            "email": candidato.email,
+        },
+        "processo": {
+            "nome": processo.nome if processo else "N/A",
+            "edital": "2026.2"
+        },
+        "membros": [
+            {
+                "id": m.id,
+                "nome_completo": m.nome_completo,
+                "cpf": m.cpf,
+                "parentesco": m.parentesco,
+                "renda_declarada": m.renda_declarada
+            } for m in membros
+        ],
+        "documentos_enviados": [
+            {
+                "id": e.id,
+                "solicitado_id": e.solicitado_id,
+                "membro_id": e.membro_id,
+                "status": e.status_processamento,
+                "mensagem": e.mensagem_erro
+            } for e in enviados
+        ]
     }

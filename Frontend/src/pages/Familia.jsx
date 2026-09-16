@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, FileUp, Pencil, Plus, Save, Trash2, Users, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
+import { CandidateTopbar } from "../components/PortalLayouts";
 
 const FORMULARIO_VAZIO = {
   nome_completo: "",
@@ -10,7 +11,7 @@ const FORMULARIO_VAZIO = {
   renda_declarada: "",
 };
 
-export default function Familia() {
+export default function Familia({ onLogout }) {
   const navigate = useNavigate();
   const [inscricaoId, setInscricaoId] = useState(null);
   const [membros, setMembros] = useState([]);
@@ -18,6 +19,7 @@ export default function Familia() {
   const [membroEditando, setMembroEditando] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [concluindo, setConcluindo] = useState(false);
   const [erro, setErro] = useState("");
   const [leituraDoc, setLeituraDoc] = useState({ carregando: false, sucesso: null, erro: null });
   const fileInputRef = useRef(null);
@@ -141,8 +143,24 @@ export default function Familia() {
     }
   }
 
+  async function concluirFamilia() {
+    if (!inscricaoId) return;
+    setConcluindo(true);
+    setErro("");
+    try {
+      await api.post(`/inscricoes/${inscricaoId}/familia/concluir`);
+      navigate("/upload");
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível concluir o grupo familiar.");
+    } finally {
+      setConcluindo(false);
+    }
+  }
+
   return (
-    <main
+    <main className="candidate-page">
+      <CandidateTopbar title="Grupo Familiar" onLogout={onLogout} />
+      <section
       style={{
         padding: "32px 16px",
         maxWidth: "680px",
@@ -636,7 +654,7 @@ export default function Familia() {
         </div>
 
         {/* Banner de Próximo Passo para Envio de Documentos */}
-        {membros.length > 0 && (
+        {!carregando && (
           <div
             style={{
               marginTop: "28px",
@@ -661,7 +679,8 @@ export default function Familia() {
             </div>
 
             <button
-              onClick={() => navigate("/upload")}
+              onClick={concluirFamilia}
+              disabled={concluindo}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -682,6 +701,7 @@ export default function Familia() {
           </div>
         )}
       </div>
+      </section>
     </main>
   );
 }

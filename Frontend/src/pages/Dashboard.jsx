@@ -1,188 +1,27 @@
-import { useEffect, useState } from "react";
-import { FileUp, LogOut, Search, ShieldCheck, UserPlus, Users } from "lucide-react";
+import { ChevronDown, FileText, FileUp, Loader2, Search, UserPlus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 import "./Dashboard.css";
+import { AnalystLayout, CandidateTopbar } from "../components/PortalLayouts";
 
-function Badge({ resultado }) {
-  let classe = "status-neutral";
-  if (resultado === "Aprovado") classe = "status-approved";
-  else if (resultado === "Rejeitado") classe = "status-rejected";
-  else if (resultado === "Atenção" || resultado === "Erro IA") classe = "status-warning";
-  else if (resultado === "Processando") classe = "status-processing";
+function Badge({ resultado }) { const classe = ["ENVIADO", "Aprovado", "Acessou", "Ativo", "Sem alertas"].includes(resultado) ? "status-approved" : ["REJEITADO", "Erro IA", "Ausente", "Não acessou"].includes(resultado) ? "status-rejected" : resultado === "PROCESSANDO" ? "status-processing" : "status-warning"; return <span className={`status-badge ${classe}`}>{resultado === "ENVIADO" ? "Enviado" : resultado}</span>; }
 
-  return (
-    <span className={`status-badge ${classe}`}>
-      {resultado}
-    </span>
-  );
+function DashboardCandidato({ usuario, onLogout }) {
+  const [pessoas, setPessoas] = useState([]); const [aberto, setAberto] = useState("candidato"); const [erro, setErro] = useState(""); const [inscricaoId, setInscricaoId] = useState(null); const [enviando, setEnviando] = useState("");
+  const carregar = useCallback(async () => { try { const { data: inscricao } = await api.get("/inscricoes/minha"); setInscricaoId(inscricao.id); const { data } = await api.get(`/inscricoes/${inscricao.id}/checklist`); setPessoas([{ id: "candidato", membroId: null, nome: data.candidato?.nome_completo || usuario?.nome_completo || "Titular", subtitulo: "Titular da inscrição", checklist: data.candidato?.checklist || [] }, ...(data.membros || []).map((membro) => ({ id: `membro-${membro.membro_id}`, membroId: membro.membro_id, nome: membro.nome_completo, subtitulo: "Familiar", checklist: membro.checklist || [] }))]); } catch (err) { setErro(err.response?.data?.detail || "Não foi possível carregar seus documentos."); } }, [usuario]);
+  useEffect(() => { const timer = setTimeout(carregar, 0); return () => clearTimeout(timer); }, [carregar]);
+  useEffect(() => { const timer = setInterval(carregar, 5000); return () => clearInterval(timer); }, [carregar]);
+  async function enviarArquivo(file, pessoa, item) { if (!file || !inscricaoId) return; const chave = `${pessoa.id}-${item.solicitado_id}`; setEnviando(chave); setErro(""); try { const form = new FormData(); form.append("inscricao_id", inscricaoId); form.append("solicitado_id", item.solicitado_id); if (pessoa.membroId) form.append("membro_id", pessoa.membroId); form.append("file", file); await api.post("/documentos/upload", form); await carregar(); } catch (err) { setErro(err.response?.data?.detail || "Não foi possível enviar o documento."); } finally { setEnviando(""); } }
+  return <main className="candidate-page"><CandidateTopbar title="Meus documentos" onLogout={onLogout}/><section className="candidate-dashboard"><header><div><p className="eyebrow">PAINEL DO CANDIDATO</p><h1>Olá, {usuario?.nome_completo?.split(" ")[0] || "candidato"}</h1><p>Veja as pendências e envie documentos sem sair desta página.</p></div></header>{erro && <div className="alert error-alert">{erro}</div>}<h2>Documentos por pessoa</h2><div className="person-cards">{pessoas.map((pessoa) => { const pendentes = pessoa.checklist.filter((item) => item.obrigatorio && !["ENVIADO", "ATENCAO"].includes(item.status)).length; const expandido = aberto === pessoa.id; return <article className="person-card" key={pessoa.id}><button className="person-card-head" onClick={() => setAberto(expandido ? "" : pessoa.id)}><span className="person-avatar">{pessoa.nome.charAt(0)}</span><span className="person-info"><strong>{pessoa.nome}</strong><small>{pessoa.subtitulo} · {pendentes ? `${pendentes} pendência${pendentes > 1 ? "s" : ""}` : "Documentação em dia"}</small></span><Badge resultado={pendentes ? "PENDENTE" : "ENVIADO"}/><ChevronDown className={expandido ? "chevron-open" : ""} size={19}/></button>{expandido && <div className="person-documents">{pessoa.checklist.length === 0 ? <p>Nenhum documento configurado para este edital.</p> : pessoa.checklist.flatMap((grupo) => grupo.itens.map((item) => { const chave = `${pessoa.id}-${item.solicitado_id}`; const pronto = ["ENVIADO", "ATENCAO"].includes(item.status); return <div className="person-document" key={chave}><FileText size={19}/><div><strong>{grupo.titulo}{item.rotulo ? ` — ${item.rotulo}` : ""}</strong><small>{item.mensagem_feedback || grupo.descricao || (pronto ? "Documento validado." : "Documento pendente.")}</small></div><Badge resultado={item.status}/><label className="inline-upload">{enviando === chave ? <Loader2 className="spin" size={16}/> : <FileUp size={16}/>}<span>{pronto ? "Substituir" : "Enviar"}</span><input type="file" accept=".pdf,image/png,image/jpeg" disabled={enviando === chave} onChange={(event) => enviarArquivo(event.target.files?.[0], pessoa, item)}/></label></div>; }))}</div>}</article>; })}</div></section></main>;
 }
 
-export default function Dashboard({
-  usuario,
-  onLogout,
-}) {
-  const navigate = useNavigate();
-  const [inscricaoId, setInscricaoId] = useState("");
-  const [stats, setStats] = useState({
-    ultimasValidacoesHoje: 0,
-    statusGeral: { label: "Pendente", percent: 0 },
-    totalValidacoes: 0,
-  });
-  const [historico, setHistorico] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-
-  useEffect(() => {
-    async function carregarMetricas() {
-      try {
-        const { data } = await api.get("/inscricoes/dashboard/metricas");
-        if (data.stats) setStats(data.stats);
-        if (data.historico) setHistorico(data.historico);
-      } catch (err) {
-        console.error("Erro ao carregar métricas do dashboard:", err);
-      } finally {
-        setCarregando(false);
-      }
-    }
-    carregarMetricas();
-  }, []);
-
-  function abrirAuditoria(event) {
-    event.preventDefault();
-    if (inscricaoId.trim()) navigate(`/auditoria/${inscricaoId.trim()}`);
-  }
-
-  const primeiroNome = usuario?.nome_completo?.split(" ")[0] || "Usuário";
-  const podeConsultar = usuario?.perfil !== "CANDIDATO";
-
-  return (
-    <main className="dash-shell">
-      <header className="dash-topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark">
-            <ShieldCheck size={18} />
-          </div>
-          <strong>ValidaDoc</strong>
-        </div>
-        <button className="icon-button" onClick={onLogout} title="Sair">
-          <LogOut size={17} />
-        </button>
-      </header>
-
-      <section className="dash-card">
-        <div className="dash-heading">
-          <div>
-            <h1>Bem-vindo, {primeiroNome}</h1>
-            <p className="muted">Inicie uma validação ou confira o histórico.</p>
-          </div>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {usuario?.perfil === "ADMIN" && (
-              <button
-                className="primary-button"
-                onClick={() => navigate("/pre-cadastro")}
-                style={{ background: "#6366f1" }}
-              >
-                <UserPlus size={16} /> Pré-cadastrar candidato
-              </button>
-            )}
-            <button className="primary-button" onClick={() => navigate("/upload")}>
-              <FileUp size={16} /> Validar documento
-            </button>
-            {usuario?.perfil === "CANDIDATO" && (
-              <button className="primary-button" onClick={() => navigate("/familia")} style={{ background: "#10b981" }}>
-                <Users size={16} /> Membros da família
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="summary-grid">
-          <article className="summary-card">
-            <span className="summary-title">Últimas validações</span>
-            <p className="muted small">Visualize resultados recentes.</p>
-            <p className="summary-line">
-              Hoje: <strong>{stats.ultimasValidacoesHoje}</strong>
-            </p>
-          </article>
-
-          <article className="summary-card">
-            <span className="summary-title">Status Geral</span>
-            <div className="summary-status-row">
-              <span className={`status-badge ${
-                stats.statusGeral.label === "Aprovado"
-                  ? "status-approved"
-                  : stats.statusGeral.label === "Rejeitado"
-                  ? "status-rejected"
-                  : stats.statusGeral.label === "Em Análise"
-                  ? "status-warning"
-                  : "status-neutral"
-              }`}>
-                {stats.statusGeral.label}
-              </span>
-              <strong>{stats.statusGeral.percent}%</strong>
-            </div>
-          </article>
-
-          <article className="summary-card">
-            <span className="summary-title">Contagem</span>
-            <p className="summary-line">
-              Validações Totais: <strong>{stats.totalValidacoes}</strong>
-            </p>
-          </article>
-        </div>
-
-        {podeConsultar && (
-          <form className="inline-search" onSubmit={abrirAuditoria}>
-            <label htmlFor="inscricao-id">Consultar parecer por inscrição</label>
-            <div className="input-action">
-              <input
-                id="inscricao-id"
-                value={inscricaoId}
-                onChange={(event) => setInscricaoId(event.target.value)}
-                placeholder="Ex.: 3"
-                inputMode="numeric"
-                required
-              />
-              <button className="icon-button" type="submit" title="Consultar">
-                <Search size={16} />
-              </button>
-            </div>
-          </form>
-        )}
-
-        <h2 className="section-title">Histórico Recente</h2>
-
-        <table className="history-table">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Tipo</th>
-              <th>Resultado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {historico.length === 0 ? (
-              <tr>
-                <td colSpan={3} style={{ textAlign: "center", color: "#9ca3af", padding: "28px 0", fontSize: 14 }}>
-                  {carregando ? "Carregando histórico..." : "Nenhum documento enviado ainda."}
-                </td>
-              </tr>
-            ) : (
-              historico.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    {item.data} {item.hora}
-                  </td>
-                  <td>{item.tipo}</td>
-                  <td>
-                    <Badge resultado={item.resultado} />
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
-    </main>
-  );
+function DashboardEquipe({ usuario, onLogout }) {
+  const navigate = useNavigate(); const [busca, setBusca] = useState(""); const [candidatos, setCandidatos] = useState([]); const [erro, setErro] = useState("");
+  const carregar = useCallback(() => api.get("/inscricoes/dashboard/candidatos", { params: { busca } }).then(({ data }) => setCandidatos(data.itens || [])).catch((err) => setErro(err.response?.data?.detail || "Não foi possível carregar os candidatos.")), [busca]);
+  useEffect(() => { const timer = setTimeout(carregar, 250); return () => clearTimeout(timer); }, [carregar]);
+  const acessaram = candidatos.filter((item) => item.acessou).length; const dificuldade = candidatos.filter((item) => item.com_dificuldade).length; const ausentes = candidatos.filter((item) => item.ausente).length;
+  return <AnalystLayout onLogout={onLogout}><main className="dash-shell"><section className="dash-card"><div className="dash-heading"><div><p className="eyebrow">VISÃO OPERACIONAL</p><h1>Dashboard de candidatos</h1><p className="muted">Priorize quem precisa de acompanhamento.</p></div>{usuario?.perfil === "ADMIN" && <button className="primary-button" onClick={() => navigate("/pre-cadastro")}><UserPlus size={16}/> Pré-cadastrar candidato</button>}</div><div className="summary-grid"><article className="summary-card"><span className="summary-title">Fizeram acesso</span><p className="summary-line"><strong>{acessaram}</strong> candidatos</p></article><article className="summary-card"><span className="summary-title">Com dificuldade</span><p className="summary-line"><strong>{dificuldade}</strong> precisam de atenção</p></article><article className="summary-card"><span className="summary-title">Ausentes</span><p className="summary-line"><strong>{ausentes}</strong> sem acesso há 7 dias</p></article></div><div className="table-tools"><label><Search size={17}/><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição" /></label></div>{erro && <div className="alert error-alert">{erro}</div>}<h2 className="section-title">Acompanhamento por candidato</h2><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Fez acesso</th><th>Dificuldade</th><th>Ausente</th><th></th></tr></thead><tbody>{candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td>{item.status_funil.replaceAll("_", " ")}</td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Ver</button></td></tr>)}</tbody></table></section></main></AnalystLayout>;
 }
+
+export default function Dashboard(props) { return props.usuario?.perfil === "CANDIDATO" ? <DashboardCandidato {...props}/> : <DashboardEquipe {...props}/>; }

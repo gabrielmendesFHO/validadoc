@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from .routes import auth, documentos, inscricoes
+from .routes import auth, documentos, inscricoes, integracao
 
 from .config import settings
 from .dependencies import exigir_perfil
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(documentos.router)
 app.include_router(inscricoes.router)
+app.include_router(integracao.router)
 
 
 @app.get("/")

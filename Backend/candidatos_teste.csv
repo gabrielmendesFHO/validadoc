@@ -1,0 +1,7 @@
+nome_completo,email,cpf,telefone,data_nascimento,matricula,curso,campus,turno,semestre
+Lucas Oliveira Santos,lucas.santos@exemplo.com,11122233344,(19) 99123-4567,2002-05-14,20260101,Engenharia de Software,Campus Principal,Noturno,1
+Mariana Costa Pereira,mariana.costa@exemplo.com,22233344455,(19) 99234-5678,2001-08-22,20260102,Administração,Campus Principal,Matutino,1
+Rodrigo Almeida Lima,rodrigo.almeida@exemplo.com,33344455566,(19) 99345-6789,2003-01-10,20260103,Ciência da Computação,Campus Principal,Integral,1
+Beatriz Rocha Martins,beatriz.rocha@exemplo.com,44455566677,(19) 99456-7890,2002-11-30,20260104,Direito,Campus Principal,Noturno,1
+Gabriel Fernandes Souza,gabriel.fernandes@exemplo.com,55566677788,(19) 99567-8901,2000-03-18,20260105,Psicologia,Campus Principal,Vespertino,1
+

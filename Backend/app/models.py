@@ -20,7 +20,7 @@ Base = declarative_base()
 
 # --- ENUMS DE REGRA DE NEGÓCIO ---
 
-class StatusJornada(enum.Enum):
+class StatusJornada(str, enum.Enum):
     PRE_CADASTRADO = "PRE_CADASTRADO"
     KYC_PENDENTE = "KYC_PENDENTE"
     KYC_VALIDADO = "KYC_VALIDADO"
@@ -115,6 +115,7 @@ class Inscricoes(Base):
         nullable=False, 
         server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
     )
+    ultimo_acesso = Column(TIMESTAMP, nullable=True)
     alertas_dificuldade = Column(Integer, nullable=False, server_default=text("0"))
     # -------------------------------------------
 

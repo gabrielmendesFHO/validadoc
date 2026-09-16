@@ -23,7 +23,13 @@ def _get_fernet() -> Fernet:
             "ENCRYPTION_KEY não configurada. Gere uma com:\n"
             'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
         )
-    return Fernet(settings.encryption_key.encode())
+    try:
+        return Fernet(settings.encryption_key.encode())
+    except (TypeError, ValueError) as exc:
+        raise CriptografiaNaoConfiguradaError(
+            "ENCRYPTION_KEY inválida. Gere uma chave Fernet válida com: "
+            'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        ) from exc
 
 
 def criptografar(conteudo: bytes) -> bytes:

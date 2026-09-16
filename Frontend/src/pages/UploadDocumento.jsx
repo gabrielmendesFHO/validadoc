@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
+import { CandidateTopbar } from "../components/PortalLayouts";
 
 // ─────────────────────────────────────────────
 // Sub-componentes de UI
@@ -99,7 +100,7 @@ if (!document.getElementById("upload-animations")) {
 
 const POLL_INTERVAL_MS = 3000; // consultar status a cada 3 s
 
-export default function UploadDocumento({ usuario }) {
+export default function UploadDocumento({ usuario, onLogout }) {
   const navigate = useNavigate();
   const [inscricaoId, setInscricaoId] = useState(null);
   const [checklist, setChecklist] = useState([]);
@@ -107,6 +108,7 @@ export default function UploadDocumento({ usuario }) {
   const [erro, setErro] = useState("");
   const [arquivosSelecionados, setArquivosSelecionados] = useState({});
   const [enviando, setEnviando] = useState(false);
+  const [enviandoAuditoria, setEnviandoAuditoria] = useState(false);
   // Mapa documentoId → true para os docs que ainda estão "PROCESSANDO_IA"
   const [processando, setProcessando] = useState({});
   const inputRefs = useRef({});
@@ -253,6 +255,20 @@ export default function UploadDocumento({ usuario }) {
     agendarPoll(inscricaoId);
   }
 
+  async function enviarParaAuditoria() {
+    if (!inscricaoId || !tudoAtendido || temProcessando) return;
+    setEnviandoAuditoria(true);
+    setErro("");
+    try {
+      await api.post(`/inscricoes/${inscricaoId}/documentos/concluir`);
+      navigate("/acompanhamento");
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível enviar a inscrição para auditoria.");
+    } finally {
+      setEnviandoAuditoria(false);
+    }
+  }
+
   const tudoAtendido =
     checklist.length > 0 &&
     checklist.every(
@@ -263,7 +279,7 @@ export default function UploadDocumento({ usuario }) {
 
   // ── render ──────────────────────────────────
   return (
-    <main style={{ padding: "24px 16px", maxWidth: 680, margin: "0 auto", fontFamily: "Inter, system-ui, sans-serif", color: "#1f2937" }}>
+    <main className="candidate-page"><CandidateTopbar title="Comprovação documental" onLogout={onLogout} /><section style={{ padding: "24px 16px", maxWidth: 680, margin: "0 auto", fontFamily: "Inter, system-ui, sans-serif", color: "#1f2937" }}>
       <div style={{ background: "#fff", padding: 28, borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,.05)", border: "1px solid #e5e7eb" }}>
 
         {/* Header */}
@@ -457,12 +473,12 @@ export default function UploadDocumento({ usuario }) {
             </button>
           )}
 
-          <button disabled={!tudoAtendido || temProcessando} onClick={() => navigate(`/auditoria/${inscricaoId}`)} style={{ background: tudoAtendido && !temProcessando ? "#4f46e5" : "#f3f4f6", color: tudoAtendido && !temProcessando ? "#fff" : "#9ca3af", border: "none", padding: 16, borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: tudoAtendido && !temProcessando ? "pointer" : "not-allowed" }}>
+          <button disabled={!tudoAtendido || temProcessando || enviandoAuditoria} onClick={enviarParaAuditoria} style={{ background: tudoAtendido && !temProcessando ? "#21865a" : "#f3f4f6", color: tudoAtendido && !temProcessando ? "#fff" : "#9ca3af", border: "none", padding: 16, borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: tudoAtendido && !temProcessando ? "pointer" : "not-allowed" }}>
             {temProcessando ? "Aguardando validações para prosseguir…" : tudoAtendido ? "Ir para Auditoria Final →" : "Envie todos os documentos obrigatórios para prosseguir"}
           </button>
         </div>
 
       </div>
-    </main>
+    </section></main>
   );
 }

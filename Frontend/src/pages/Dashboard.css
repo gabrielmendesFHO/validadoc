@@ -239,6 +239,12 @@
   background: #f3f4f6;
   color: #4b5563;
 }
+.candidate-monitor td small { display:block; margin-top:3px; color:#7a877f; font-size:12px; }.candidate-monitor .row-action { font-size:12px; font-weight:700; padding:7px 9px; }
+
+.inline-upload { display:inline-flex; align-items:center; gap:6px; border:1px solid #21865a; border-radius:7px; padding:8px 10px; color:#176f47; background:#fff; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap; }.inline-upload input { display:none; }.inline-upload:hover { background:#edf8f1; }
+
+/* ---------- Dashboard do candidato ---------- */
+.candidate-dashboard { max-width: 940px; margin: 0 auto; padding: 46px 24px 70px; }.candidate-dashboard>header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:34px; }.candidate-dashboard h1 { margin:5px 0 7px; font-size:31px; color:#1b2c22; }.candidate-dashboard header p:not(.eyebrow) { margin:0; color:#68776e; }.candidate-dashboard>h2 { font-size:18px; color:#294333; }.person-cards { display:flex; flex-direction:column; gap:12px; }.person-card { background:#fff; border:1px solid #dce7df; border-radius:13px; overflow:hidden; box-shadow:0 4px 15px rgba(20,65,38,.04); }.person-card-head { width:100%; border:0; background:#fff; display:flex; align-items:center; gap:13px; padding:16px 18px; text-align:left; cursor:pointer; }.person-avatar { width:39px; height:39px; display:grid; place-items:center; flex:0 0 auto; background:#dff1e6; border-radius:50%; color:#167148; font-weight:800; }.person-info { flex:1; display:flex; flex-direction:column; gap:3px; color:#213429; }.person-info small,.person-document small { color:#748178; font-size:12.5px; }.person-card-head>svg { color:#577365; transition:transform .15s; }.chevron-open { transform:rotate(180deg); }.person-documents { padding:0 18px 18px 70px; border-top:1px solid #edf2ee; }.person-document { display:flex; align-items:center; gap:11px; padding:13px 0; border-bottom:1px solid #edf2ee; color:#537564; }.person-document>div { display:flex; flex-direction:column; gap:3px; flex:1; }.person-document strong { color:#2a3d31; font-size:14px; }.person-action { margin-top:15px; padding:9px 12px; border:1px solid #21865a; background:#fff; color:#187249; border-radius:7px; font-weight:700; cursor:pointer; }
 
 /* ---------- Responsive ---------- */
 
@@ -250,4 +256,5 @@
   .dash-card {
     padding: 28px 22px;
   }
+  .candidate-dashboard { padding:28px 16px; }.candidate-dashboard>header { flex-direction:column; }.person-documents { padding-left:18px; }.person-card-head { flex-wrap:wrap; }.person-card-head .status-badge { margin-left:52px; }
 }

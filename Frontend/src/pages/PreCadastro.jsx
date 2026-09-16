@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserPlus, ShieldCheck, ArrowLeft, Check } from "lucide-react";
 import api from "../api/client";
+import { AnalystLayout } from "../components/PortalLayouts";
 
-export default function PreCadastro() {
+export default function PreCadastro({ onLogout }) {
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -42,7 +43,7 @@ export default function PreCadastro() {
   }
 
   return (
-    <main className="auth-shell">
+    <AnalystLayout onLogout={onLogout}><main className="auth-shell">
       <div className="auth-card auth-card--split">
 
         {/* Coluna do formulário */}
@@ -210,7 +211,7 @@ export default function PreCadastro() {
         </aside>
 
       </div>
-    </main>
+    </main></AnalystLayout>
   );
 }
 
