@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, FileText, AlertTriangle } from "lucide-react";
+import { Check, FileText } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { AnalystLayout } from "../components/PortalLayouts";
 import api from "../api/client";
@@ -16,7 +16,7 @@ export default function DetalheInscricao({ onLogout }) {
       try {
         const response = await api.get(`/inscricoes/${inscricaoId}/detalhe`);
         setData(response.data);
-      } catch (err) {
+      } catch {
         setError("Não foi possível carregar os detalhes.");
       } finally {
         setLoading(false);

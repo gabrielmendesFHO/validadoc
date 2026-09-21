@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UserPlus, ShieldCheck, ArrowLeft, Check } from "lucide-react";
+import { UserPlus, ShieldCheck, ArrowLeft, Check, FileSpreadsheet, Upload } from "lucide-react";
 import api from "../api/client";
 import { AnalystLayout } from "../components/PortalLayouts";
 
@@ -14,6 +14,9 @@ export default function PreCadastro({ onLogout }) {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState(null);
   const [sucesso, setSucesso] = useState(null);
+  const [arquivoCsv, setArquivoCsv] = useState(null);
+  const [importando, setImportando] = useState(false);
+  const [resultadoCsv, setResultadoCsv] = useState(null);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -39,6 +42,24 @@ export default function PreCadastro({ onLogout }) {
       setErro(err.response?.data?.detail || "Não foi possível realizar o pré-cadastro.");
     } finally {
       setCarregando(false);
+    }
+  }
+
+  async function importarCsv() {
+    if (!arquivoCsv) return;
+    setImportando(true);
+    setErro(null);
+    setResultadoCsv(null);
+    try {
+      const form = new FormData();
+      form.append("file", arquivoCsv);
+      const { data } = await api.post("/api/v1/integracao/upload-csv", form);
+      setResultadoCsv(data);
+      setArquivoCsv(null);
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível importar a planilha CSV.");
+    } finally {
+      setImportando(false);
     }
   }
 
@@ -88,6 +109,15 @@ export default function PreCadastro({ onLogout }) {
           <p className="muted" style={{ marginBottom: "24px" }}>
             Crie o acesso inicial. O candidato poderá atualizar seus dados ao enviar os documentos.
           </p>
+
+          <section className="csv-import-card">
+            <div><FileSpreadsheet size={22}/><span><strong>Importar planilha CSV</strong><small>Colunas mínimas: nome, email e cpf.</small></span></div>
+            <label className="csv-file-picker"><Upload size={17}/>{arquivoCsv?.name || "Selecionar arquivo .csv"}<input hidden type="file" accept=".csv,text/csv" onChange={(event) => { setArquivoCsv(event.target.files?.[0] || null); setResultadoCsv(null); }}/></label>
+            <button type="button" className="brand-button" disabled={!arquivoCsv || importando} onClick={importarCsv}>{importando ? "Importando…" : "Importar candidatos"}</button>
+            {resultadoCsv && <div className={resultadoCsv.erros?.length ? "alert error-alert" : "alert success-alert"}><strong>{resultadoCsv.total_processados} linha(s) processada(s)</strong><span>{resultadoCsv.novos_usuarios} novo(s), {resultadoCsv.usuarios_atualizados} atualizado(s){resultadoCsv.erros?.length ? ` e ${resultadoCsv.erros.length} erro(s).` : "."}</span>{resultadoCsv.erros?.length > 0 && <ul>{resultadoCsv.erros.map((item) => <li key={`${item.linha}-${item.email || "sem-email"}`}>Linha {item.linha}: {item.erro}</li>)}</ul>}</div>}
+          </section>
+
+          <div className="form-divider"><span>ou cadastre individualmente</span></div>
 
           <form onSubmit={handleSubmit}>
             {/* E-mail — obrigatório */}
@@ -214,4 +244,3 @@ export default function PreCadastro({ onLogout }) {
     </main></AnalystLayout>
   );
 }
-

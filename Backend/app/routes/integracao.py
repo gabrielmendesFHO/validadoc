@@ -203,12 +203,15 @@ def upload_csv_pre_cadastro(
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="O arquivo deve ser do tipo CSV (.csv).")
 
+    conteudo_bytes = file.file.read()
+    if len(conteudo_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="A planilha CSV deve ter no máximo 5 MB.")
+
     try:
-        conteudo = file.file.read().decode("utf-8-sig")
+        conteudo = conteudo_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
         try:
-            file.file.seek(0)
-            conteudo = file.file.read().decode("latin-1")
+            conteudo = conteudo_bytes.decode("latin-1")
         except Exception:
             raise HTTPException(
                 status_code=400,
@@ -241,7 +244,10 @@ def upload_csv_pre_cadastro(
 
         try:
             dados_entrada = PreCadastroERPIn(**linha_limpa)
-            novo_usuario, usuario, inscricao, senha_prov = _processar_candidato(dados_entrada, db)
+            # Cada linha usa savepoint próprio: uma linha inválida não deixa
+            # alterações parciais nem invalida o restante do lote.
+            with db.begin_nested():
+                novo_usuario, usuario, inscricao, senha_prov = _processar_candidato(dados_entrada, db)
 
             if novo_usuario:
                 resultados["novos_usuarios"] += 1
@@ -272,7 +278,7 @@ def upload_csv_pre_cadastro(
             resultados["erros"].append({
                 "linha": linha_num,
                 "email": linha_limpa.get("email"),
-                "erro": f"Erro interno: {str(e)}",
+                "erro": f"Erro interno ao processar a linha ({type(e).__name__}).",
             })
 
     # Comita todos os registros que foram processados com sucesso

@@ -197,6 +197,7 @@ def fila_auditoria(
 @router.get("/dashboard/candidatos")
 def dashboard_candidatos(
     busca: str = Query(default="", max_length=100),
+    status_funil: StatusJornada | None = None,
     pagina: int = Query(default=1, ge=1),
     por_pagina: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -207,6 +208,8 @@ def dashboard_candidatos(
     termo = busca.strip()
     if termo:
         consulta = consulta.filter(Inscricoes.id == int(termo) if termo.isdigit() else Usuarios.nome_completo.ilike(f"%{termo}%"))
+    if status_funil is not None:
+        consulta = consulta.filter(Inscricoes.status_funil == status_funil)
     total = consulta.count()
     registros = consulta.order_by(Inscricoes.ultima_atividade.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina).all()
     limite_ausencia = datetime.now() - timedelta(days=7)

@@ -1,11 +1,38 @@
-import { ChevronDown, FileText, FileUp, Loader2, Search, UserPlus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, FileText, FileUp, Loader2, RefreshCw, Search, UserPlus, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import api from "../api/client";
 import "./Dashboard.css";
 import { AnalystLayout, CandidateTopbar } from "../components/PortalLayouts";
 
 function Badge({ resultado }) { const classe = ["ENVIADO", "Aprovado", "Acessou", "Ativo", "Sem alertas"].includes(resultado) ? "status-approved" : ["REJEITADO", "Erro IA", "Ausente", "Não acessou"].includes(resultado) ? "status-rejected" : resultado === "PROCESSANDO" ? "status-processing" : "status-warning"; return <span className={`status-badge ${classe}`}>{resultado === "ENVIADO" ? "Enviado" : resultado}</span>; }
+
+const STATUS_LABELS = {
+  PRE_CADASTRADO: "Pré-cadastro",
+  KYC_PENDENTE: "KYC pendente",
+  KYC_VALIDADO: "KYC validado",
+  FAMILIA_PENDENTE: "Grupo familiar",
+  DOCS_PENDENTES: "Documentos",
+  PRONTO_AUDITORIA: "Pronto para auditoria",
+  CONCLUIDO: "Concluído",
+  ABANDONO: "Abandono",
+};
+
+const STATUS_COLORS = {
+  PRE_CADASTRADO: "#64748b",
+  KYC_PENDENTE: "#2563eb",
+  KYC_VALIDADO: "#0891b2",
+  FAMILIA_PENDENTE: "#7c3aed",
+  DOCS_PENDENTES: "#d97706",
+  PRONTO_AUDITORIA: "#e11d48",
+  CONCLUIDO: "#16803c",
+  ABANDONO: "#991b1b",
+};
+
+function KpiCard({ icon: Icon, label, value, detail, tone = "green", onClick }) {
+  return <button className={`bi-kpi bi-kpi-${tone}`} type="button" onClick={onClick}><span className="bi-kpi-icon"><Icon size={20}/></span><span className="bi-kpi-copy"><small>{label}</small><strong>{value ?? "—"}</strong><em>{detail}</em></span></button>;
+}
 
 function DashboardCandidato({ usuario, onLogout }) {
   const [pessoas, setPessoas] = useState([]); const [aberto, setAberto] = useState("candidato"); const [erro, setErro] = useState(""); const [inscricaoId, setInscricaoId] = useState(null); const [enviando, setEnviando] = useState("");
@@ -17,11 +44,58 @@ function DashboardCandidato({ usuario, onLogout }) {
 }
 
 function DashboardEquipe({ usuario, onLogout }) {
-  const navigate = useNavigate(); const [busca, setBusca] = useState(""); const [candidatos, setCandidatos] = useState([]); const [erro, setErro] = useState("");
-  const carregar = useCallback(() => api.get("/inscricoes/dashboard/candidatos", { params: { busca } }).then(({ data }) => setCandidatos(data.itens || [])).catch((err) => setErro(err.response?.data?.detail || "Não foi possível carregar os candidatos.")), [busca]);
+  const navigate = useNavigate();
+  const [busca, setBusca] = useState("");
+  const [statusFiltro, setStatusFiltro] = useState("");
+  const [candidatos, setCandidatos] = useState([]);
+  const [metricas, setMetricas] = useState(null);
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(true);
+  const [atualizadoEm, setAtualizadoEm] = useState(null);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro("");
+    try {
+      const [resumo, lista] = await Promise.all([
+        api.get("/dashboard/metricas"),
+        api.get("/inscricoes/dashboard/candidatos", { params: { busca, status_funil: statusFiltro || undefined, por_pagina: 100 } }),
+      ]);
+      setMetricas(resumo.data);
+      setCandidatos(lista.data.itens || []);
+      setAtualizadoEm(new Date());
+    } catch (err) {
+      setErro(err.response?.data?.detail || "Não foi possível carregar o painel gerencial.");
+    } finally {
+      setCarregando(false);
+    }
+  }, [busca, statusFiltro]);
+
   useEffect(() => { const timer = setTimeout(carregar, 250); return () => clearTimeout(timer); }, [carregar]);
-  const acessaram = candidatos.filter((item) => item.acessou).length; const dificuldade = candidatos.filter((item) => item.com_dificuldade).length; const ausentes = candidatos.filter((item) => item.ausente).length;
-  return <AnalystLayout onLogout={onLogout}><main className="dash-shell"><section className="dash-card"><div className="dash-heading"><div><p className="eyebrow">VISÃO OPERACIONAL</p><h1>Dashboard de candidatos</h1><p className="muted">Priorize quem precisa de acompanhamento.</p></div>{usuario?.perfil === "ADMIN" && <button className="primary-button" onClick={() => navigate("/pre-cadastro")}><UserPlus size={16}/> Pré-cadastrar candidato</button>}</div><div className="summary-grid"><article className="summary-card"><span className="summary-title">Fizeram acesso</span><p className="summary-line"><strong>{acessaram}</strong> candidatos</p></article><article className="summary-card"><span className="summary-title">Com dificuldade</span><p className="summary-line"><strong>{dificuldade}</strong> precisam de atenção</p></article><article className="summary-card"><span className="summary-title">Ausentes</span><p className="summary-line"><strong>{ausentes}</strong> sem acesso há 7 dias</p></article></div><div className="table-tools"><label><Search size={17}/><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição" /></label></div>{erro && <div className="alert error-alert">{erro}</div>}<h2 className="section-title">Acompanhamento por candidato</h2><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Fez acesso</th><th>Dificuldade</th><th>Ausente</th><th></th></tr></thead><tbody>{candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td>{item.status_funil.replaceAll("_", " ")}</td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Ver</button></td></tr>)}</tbody></table></section></main></AnalystLayout>;
+
+  const dadosFunil = useMemo(() => Object.entries(metricas?.por_status || {}).map(([status, quantidade]) => ({ status, etapa: STATUS_LABELS[status] || status, quantidade, fill: STATUS_COLORS[status] || "#64748b" })), [metricas]);
+  const dadosRosca = useMemo(() => dadosFunil.filter((item) => item.quantidade > 0), [dadosFunil]);
+  const taxaConclusao = metricas?.total ? Math.round((metricas.concluidas / metricas.total) * 100) : 0;
+
+  return <AnalystLayout onLogout={onLogout}><main className="dash-shell bi-shell"><section className="dash-card bi-card">
+    <div className="dash-heading bi-heading"><div><p className="eyebrow">INTELIGÊNCIA OPERACIONAL</p><h1>Visão geral do processo seletivo</h1><p className="muted">Indicadores consolidados para acompanhar a jornada dos candidatos.</p></div><div className="bi-heading-actions"><span className="bi-updated"><Clock3 size={14}/> {atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Carregando dados"}</span><button className="secondary-button" onClick={carregar} disabled={carregando}><RefreshCw className={carregando ? "spin" : ""} size={16}/> Atualizar</button>{usuario?.perfil === "ADMIN" && <button className="primary-button" onClick={() => navigate("/pre-cadastro")}><UserPlus size={16}/> Importar candidatos</button>}</div></div>
+
+    {erro && <div className="alert error-alert">{erro}</div>}
+
+    <div className="bi-kpi-grid">
+      <KpiCard icon={UsersRound} label="Inscrições" value={metricas?.total} detail="Total no processo" tone="blue" onClick={() => setStatusFiltro("")}/>
+      <KpiCard icon={AlertTriangle} label="Com dificuldade" value={metricas?.com_dificuldade} detail="Precisam de atenção" tone="amber" onClick={() => navigate("/fila-auditoria")}/>
+      <KpiCard icon={FileText} label="Para auditoria" value={metricas?.prontas_auditoria} detail="Aguardando parecer" tone="rose" onClick={() => setStatusFiltro("PRONTO_AUDITORIA")}/>
+      <KpiCard icon={CheckCircle2} label="Concluídas" value={metricas?.concluidas} detail={`${taxaConclusao}% de conclusão`} tone="green" onClick={() => setStatusFiltro("CONCLUIDO")}/>
+    </div>
+
+    <div className="bi-chart-grid">
+      <article className="bi-panel bi-panel-wide"><header><div><p className="eyebrow">FUNIL</p><h2>Distribuição por etapa</h2></div><span>{metricas?.total || 0} inscrições</span></header><div className="bi-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={dadosRosca} layout="vertical" margin={{ top: 4, right: 24, left: 12, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9eeeb"/><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="etapa" width={128} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#526158" }}/><Tooltip cursor={{ fill: "#f3f7f4" }} formatter={(valor) => [`${valor} inscrição(ões)`, "Quantidade"]}/><Bar dataKey="quantidade" radius={[0, 6, 6, 0]}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Bar></BarChart></ResponsiveContainer></div></article>
+      <article className="bi-panel"><header><div><p className="eyebrow">COMPOSIÇÃO</p><h2>Status das inscrições</h2></div></header><div className="bi-donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={dadosRosca} dataKey="quantidade" nameKey="etapa" innerRadius={62} outerRadius={90} paddingAngle={3}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Pie><Tooltip formatter={(valor) => [`${valor} inscrição(ões)`, "Quantidade"]}/><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }}/></PieChart></ResponsiveContainer><div className="bi-donut-center"><strong>{taxaConclusao}%</strong><span>concluído</span></div></div></article>
+    </div>
+
+    <article className="bi-panel bi-table-panel"><header className="bi-table-header"><div><p className="eyebrow">DRILL-DOWN</p><h2>Acompanhamento por candidato</h2></div><div className="bi-filters"><label><Search size={16}/><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição"/></label><select value={statusFiltro} onChange={(event) => setStatusFiltro(event.target.value)}><option value="">Todas as etapas</option>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div></header><div className="bi-table-wrap"><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Acesso</th><th>Dificuldade</th><th>Atividade</th><th></th></tr></thead><tbody>{carregando && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty"><Loader2 className="spin" size={18}/> Carregando indicadores...</td></tr> : candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Nenhum candidato encontrado para os filtros selecionados.</td></tr> : candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td><span className="bi-stage" style={{ "--stage-color": STATUS_COLORS[item.status_funil] }}>{STATUS_LABELS[item.status_funil] || item.status_funil}</span></td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Analisar</button></td></tr>)}</tbody></table></div></article>
+  </section></main></AnalystLayout>;
 }
 
 export default function Dashboard(props) { return props.usuario?.perfil === "CANDIDATO" ? <DashboardCandidato {...props}/> : <DashboardEquipe {...props}/>; }
