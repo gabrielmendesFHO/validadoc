@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     database_url: str = "mysql+pymysql://root:@127.0.0.1:3306/validadoc"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
+    gemini_fallback_model: str = "gemini-flash-lite-latest"
+    gemini_timeout_ms: int = 45000
     jwt_secret_key: str = "troque-essa-chave-no-.env"
     jwt_algorithm: str = "HS256"
     jwt_expira_minutos: int = 480  # 8h

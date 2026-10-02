@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import Base, Inscricoes, ProcessosBolsa, StatusJornada, Usuarios
 from app.routes.operacional import router
+from app.routes.inscricoes import router as inscricoes_router
 
 
 engine = create_engine(
@@ -22,6 +24,7 @@ TestingSession = sessionmaker(bind=engine)
 
 app_test = FastAPI()
 app_test.include_router(router)
+app_test.include_router(inscricoes_router)
 
 
 @pytest.fixture(autouse=True)
@@ -109,3 +112,25 @@ def test_parecer_manual_rejeita_decisao_invalida(client):
         json={"decisao": "ADIAR", "justificativa": "Falta revisar."},
     )
     assert response.status_code == 422
+
+
+def test_auditoria_expoe_motivos_persistidos_da_revisao(client):
+    with TestingSession() as db:
+        inscricao = db.get(Inscricoes, 2)
+        inscricao.status_geral = "REVISAO_MANUAL"
+        inscricao.inconsistencias = json.dumps(["CPF divergente.", "Holerite ausente."])
+        db.commit()
+
+    response = client.get("/auditoria/2")
+    assert response.status_code == 200
+    assert response.json()["inscricao"]["inconsistencias"] == ["CPF divergente.", "Holerite ausente."]
+
+
+def test_revisao_automatica_permanece_na_fila_do_analista(client):
+    response = client.post("/inscricoes/2/auditar")
+    assert response.status_code == 200
+    assert response.json()["status_geral"] == "REVISAO_MANUAL"
+    with TestingSession() as db:
+        assert db.get(Inscricoes, 2).status_funil == StatusJornada.PRONTO_AUDITORIA
+    fila = client.get("/dashboard/estagnadas").json()["itens"]
+    assert any(item["inscricao_id"] == 2 and item["situacao"] == "PRONTO_AUDITORIA" for item in fila)

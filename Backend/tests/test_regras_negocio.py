@@ -1,5 +1,6 @@
 import pytest
 from types import SimpleNamespace
+from datetime import datetime
 
 from app.services.gemini_service import avaliar_possivel_divergencia
 from app.services.regras_negocio import auditar_inscricao
@@ -21,10 +22,11 @@ def processo_padrao():
 
 @pytest.fixture
 def documentos_padrao():
+    data_recente = datetime.now().strftime("%d/%m/%Y")
     return [
         criar_documento("RG", {"nome": "Maria da Silva", "cpf": "12345678900", "legibilidade": 95, "documento_integro": True}),
-        criar_documento("RESIDENCIA", {"data_emissao": "01/08/2026", "legibilidade": 95, "documento_integro": True}),
-        criar_documento("HOLERITE", {"data_emissao": "01/08/2026", "renda_bruta": 1800, "renda_liquida": 1500, "legibilidade": 95, "documento_integro": True}),
+        criar_documento("RESIDENCIA", {"data_emissao": data_recente, "legibilidade": 95, "documento_integro": True}),
+        criar_documento("HOLERITE", {"data_emissao": data_recente, "renda_bruta": 1800, "renda_liquida": 1500, "legibilidade": 95, "documento_integro": True}),
     ]
 
 
@@ -70,6 +72,74 @@ def test_renda_acima_do_teto(candidato_padrao, documentos_padrao):
 
     assert resultado.status_geral == "NAO_APTO"
     assert resultado.renda_per_capita == 1800.0
+
+
+def test_renda_exatamente_no_teto_continua_apta(candidato_padrao, documentos_padrao):
+    resultado = auditar_inscricao(
+        candidato_padrao, documentos_padrao, [], {},
+        SimpleNamespace(renda_per_capita_limite=1800),
+    )
+    assert resultado.status_geral == "APTO"
+    assert resultado.renda_per_capita == 1800.0
+
+
+def test_cpf_divergente_do_familiar_exige_revisao(candidato_padrao, documentos_padrao):
+    membro = SimpleNamespace(id=7, nome_completo="João da Silva", cpf="111.222.333-44", renda_declarada=0)
+    data_recente = datetime.now().strftime("%d/%m/%Y")
+    documentos_membro = [
+        criar_documento("RG", {"nome": "João da Silva", "cpf": "99988877766", "legibilidade": 95, "documento_integro": True}),
+        criar_documento("HOLERITE", {"data_emissao": data_recente, "renda_bruta": 1000, "renda_liquida": 900}),
+    ]
+    resultado = auditar_inscricao(
+        candidato_padrao, documentos_padrao, [membro], {membro.id: documentos_membro},
+        SimpleNamespace(renda_per_capita_limite=5000),
+    )
+    assert resultado.status_geral == "REVISAO_MANUAL"
+    assert any("João da Silva" in item and "CPF do documento diverge" in item for item in resultado.inconsistencias)
+
+
+def test_cpf_ausente_no_documento_nao_confirma_identidade(candidato_padrao, documentos_padrao):
+    documentos = list(documentos_padrao)
+    documentos[0] = criar_documento("RG", {"nome": "Maria da Silva", "legibilidade": 95, "documento_integro": True})
+    resultado = auditar_inscricao(
+        candidato_padrao, documentos, [], {},
+        SimpleNamespace(renda_per_capita_limite=5000),
+    )
+    assert resultado.status_geral == "REVISAO_MANUAL"
+    assert any("CPF não identificado" in item for item in resultado.inconsistencias)
+
+
+def test_familiar_sem_cpf_cadastrado_nao_e_aprovado_automaticamente(candidato_padrao, documentos_padrao):
+    membro = SimpleNamespace(id=7, nome_completo="João da Silva", cpf=None, renda_declarada=0)
+    data_recente = datetime.now().strftime("%d/%m/%Y")
+    documentos_membro = [
+        criar_documento("RG", {"nome": "João da Silva", "cpf": "11122233344", "legibilidade": 95, "documento_integro": True}),
+        criar_documento("HOLERITE", {"data_emissao": data_recente, "renda_bruta": 1000, "renda_liquida": 900}),
+    ]
+    resultado = auditar_inscricao(
+        candidato_padrao, documentos_padrao, [membro], {membro.id: documentos_membro},
+        SimpleNamespace(renda_per_capita_limite=5000),
+    )
+    assert resultado.status_geral == "REVISAO_MANUAL"
+    assert any("CPF não cadastrado" in item for item in resultado.inconsistencias)
+
+
+def test_divergencia_de_identidade_exige_revisao_mesmo_acima_do_teto(candidato_padrao, documentos_padrao):
+    documentos = list(documentos_padrao)
+    documentos[0] = criar_documento(
+        "RG",
+        {"nome": "Maria da Silva", "cpf": "99999999999", "legibilidade": 95, "documento_integro": True},
+    )
+    resultado = auditar_inscricao(
+        candidato_padrao,
+        documentos,
+        [],
+        {},
+        SimpleNamespace(renda_per_capita_limite=1000),
+    )
+    assert resultado.status_geral == "REVISAO_MANUAL"
+    assert any("CPF" in item for item in resultado.inconsistencias)
+    assert any("Renda per capita" in item for item in resultado.inconsistencias)
 
 
 def test_renda_liquida_maior_que_bruta_exige_revisao(candidato_padrao, documentos_padrao):

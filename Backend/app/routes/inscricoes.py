@@ -649,7 +649,11 @@ def auditar_inscricao_endpoint(
         json.dumps(resultado.inconsistencias, ensure_ascii=False) if resultado.inconsistencias else None
     )
     inscricao.renda_per_capita_calculada = resultado.renda_per_capita
-    inscricao.status_funil = StatusJornada.CONCLUIDO
+    inscricao.status_funil = (
+        StatusJornada.PRONTO_AUDITORIA
+        if resultado.status_geral == "REVISAO_MANUAL"
+        else StatusJornada.CONCLUIDO
+    )
     db.commit()
     db.refresh(inscricao)
 

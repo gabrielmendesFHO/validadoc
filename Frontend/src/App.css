@@ -1054,3 +1054,6 @@
 .upload-dropzone:disabled { cursor: default; opacity: .72; }
 .kyc-processing { display:flex; align-items:center; gap:8px; color:#356249; font-size:13px; }
 .queue-empty { padding:36px!important; text-align:center; color:#718078!important; }.queue-empty svg { vertical-align:middle; margin-right:8px; }.queue-pagination { display:flex; align-items:center; gap:8px; }.queue-pagination button { display:grid; place-items:center; border:1px solid #dce4df; border-radius:5px; background:#fff; color:#3e5b4b; cursor:pointer; padding:3px; }.queue-pagination button:disabled { opacity:.35; cursor:not-allowed; }
+
+.kyc-document-type { display:flex; flex-direction:column; gap:8px; margin-top:24px; color:#244633; font-weight:600; }
+.kyc-document-type select { max-width:320px; padding:10px 12px; border:1px solid #92bea4; border-radius:8px; background:#fff; color:#244633; font:inherit; }

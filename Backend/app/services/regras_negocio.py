@@ -125,10 +125,14 @@ def _validar_lote_documentos(documentos, nome_pessoa, cpf_cadastro, inconsistenc
         nome_documento = _normalizar_nome(doc_identidade.get("nome"))
         nome_esperado = _normalizar_nome(nome_pessoa)
 
-        if cpf_esperado and cpf_documento and cpf_documento != cpf_esperado:
+        if cpf_esperado and not cpf_documento:
+            inconsistencias.append(f"[{nome_pessoa}] CPF não identificado no documento de identidade; confirmar manualmente.")
+        elif cpf_esperado and cpf_documento != cpf_esperado:
             inconsistencias.append(f"[{nome_pessoa}] CPF do documento diverge do CPF informado no cadastro.")
 
-        if nome_documento and nome_esperado and nome_documento != nome_esperado:
+        if nome_esperado and not nome_documento:
+            inconsistencias.append(f"[{nome_pessoa}] Nome não identificado no documento de identidade; confirmar manualmente.")
+        elif nome_documento and nome_esperado and nome_documento != nome_esperado:
             inconsistencias.append(f"[{nome_pessoa}] Nome do documento ({nome_documento}) diverge do nome cadastrado ({nome_esperado}).")
     else:
         inconsistencias.append(f"[{nome_pessoa}] Nenhum documento de identidade (RG/CNH) processado com sucesso.")
@@ -170,9 +174,12 @@ def auditar_inscricao(candidato, documentos_candidato, membros_familia, document
         renda_bruta_membro = _validar_lote_documentos(
             documentos=docs_do_membro,
             nome_pessoa=membro.nome_completo,
-            cpf_cadastro=None, # Apenas valida se o nome bater, já que membro não tem CPF explícito salvo no banco ainda
+            cpf_cadastro=getattr(membro, "cpf", None),
             inconsistencias=inconsistencias
         )
+
+        if not _normalizar_cpf(getattr(membro, "cpf", None)):
+            inconsistencias.append(f"[{membro.nome_completo}] CPF não cadastrado para o familiar; identidade requer revisão manual.")
         
         # A renda contabilizada para a família prefere o holerite lido, senão cai pro valor que o candidato declarou na tela
         if renda_bruta_membro is not None:
@@ -180,8 +187,7 @@ def auditar_inscricao(candidato, documentos_candidato, membros_familia, document
         else:
             renda_declarada = _valor_para_float(membro.renda_declarada, default=0.0)
             renda_total += renda_declarada
-            if renda_declarada > 0:
-                inconsistencias.append(f"[{membro.nome_completo}] Holerite não extraído. Usando renda declarada manualmente (R$ {renda_declarada:.2f}).")
+            inconsistencias.append(f"[{membro.nome_completo}] Holerite não extraído. Usando renda declarada manualmente (R$ {renda_declarada:.2f}).")
 
     # Auditoria de Filiação: compara nomes dos membros progenitores com o RG do candidato
     dados_por_categoria_candidato = {
@@ -227,21 +233,30 @@ def auditar_inscricao(candidato, documentos_candidato, membros_familia, document
 
     limite = float(processo.renda_per_capita_limite) if processo.renda_per_capita_limite else None
     
-    if limite is not None and renda_per_capita > limite:
+    renda_acima_do_teto = limite is not None and renda_per_capita > limite
+
+    # Uma renda calculada a partir de dados inconsistentes não deve produzir
+    # uma rejeição automática antes da conferência humana.
+    if inconsistencias:
+        if renda_acima_do_teto:
+            inconsistencias.append(
+                f"Renda per capita calculada (R$ {renda_per_capita:.2f}) ultrapassa o "
+                f"limite do processo (R$ {limite:.2f}); confirmar os dados na revisão manual."
+            )
+        return ResultadoAuditoria(
+            status_geral="REVISAO_MANUAL",
+            parecer="Inconsistências encontradas — revisão manual necessária.",
+            inconsistencias=inconsistencias,
+            renda_per_capita=renda_per_capita,
+        )
+
+    if renda_acima_do_teto:
         return ResultadoAuditoria(
             status_geral="NAO_APTO",
             parecer=(
                 f"Renda per capita calculada (R$ {renda_per_capita:.2f}) ultrapassa o "
                 f"limite máximo do processo (R$ {limite:.2f})."
             ),
-            inconsistencias=inconsistencias,
-            renda_per_capita=renda_per_capita,
-        )
-
-    if inconsistencias:
-        return ResultadoAuditoria(
-            status_geral="REVISAO_MANUAL",
-            parecer="Inconsistências encontradas — revisão manual necessária.",
             inconsistencias=inconsistencias,
             renda_per_capita=renda_per_capita,
         )

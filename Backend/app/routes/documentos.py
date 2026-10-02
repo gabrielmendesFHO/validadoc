@@ -192,6 +192,11 @@ async def upload_documento(
     if solicitado is None or solicitado.processo_id != inscricao.processo_id:
         raise HTTPException(status_code=400, detail="solicitado_id inválido para esta inscrição.")
 
+    if membro_id is not None:
+        membro = db.get(MembrosFamilia, membro_id)
+        if membro is None or membro.inscricao_id != inscricao_id:
+            raise HTTPException(status_code=400, detail="membro_id inválido para esta inscrição.")
+
     # Enquanto o KYC estiver pendente, o candidato só pode enviar o seu
     # documento de identidade; nenhuma etapa avançada pode ser iniciada.
     if usuario.perfil == "CANDIDATO" and inscricao.status_funil in {
@@ -214,23 +219,29 @@ async def upload_documento(
     outros_binarios = (
         db.query(DocumentoBinario)
         .join(DocumentosEnviados)
-        .filter(
-            DocumentosEnviados.inscricao_id == inscricao_id,
-            (DocumentosEnviados.solicitado_id != solicitado_id)
-            | (DocumentosEnviados.membro_id != membro_id),
-        )
+        .filter(DocumentosEnviados.inscricao_id == inscricao_id)
         .all()
     )
     for outro in outros_binarios:
-        if outro.tamanho_bytes == len(conteudo_original):
-            try:
-                if descriptografar(outro.conteudo_criptografado) == conteudo_original:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Arquivo duplicado: este arquivo já foi enviado para outro documento desta inscrição.",
-                    )
-            except (ValueError, Exception):
-                pass
+        documento_anterior = outro.documento
+        mesmo_destino = (
+            documento_anterior.solicitado_id == solicitado_id
+            and documento_anterior.membro_id == membro_id
+        )
+        if mesmo_destino or outro.tamanho_bytes != len(conteudo_original):
+            continue
+        try:
+            conteudo_anterior = descriptografar(outro.conteudo_criptografado)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Não foi possível verificar um documento anterior desta inscrição.",
+            ) from exc
+        if conteudo_anterior == conteudo_original:
+            raise HTTPException(
+                status_code=422,
+                detail="Arquivo duplicado: este arquivo já foi enviado para outro documento desta inscrição.",
+            )
 
     mime_type = _detectar_mime(file.filename)
     conteudo_para_ia, mime_para_ia = preparar_para_ia_multimodal(

@@ -201,6 +201,7 @@ def obter_auditoria(
             "status_funil": _valor_status(inscricao.status_funil),
             "status_geral": inscricao.status_geral,
             "parecer": inscricao.parecer,
+            "inconsistencias": _json_seguro(inscricao.inconsistencias) or [],
             "renda_per_capita_calculada": inscricao.renda_per_capita_calculada,
         },
         "candidato": {

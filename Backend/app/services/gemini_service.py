@@ -14,6 +14,7 @@ Usa o SDK novo (`google-genai`), não o `google-generativeai` (deprecado desde
 from functools import lru_cache
 from typing import Any, Dict
 import json
+import logging
 import re
 
 from google import genai
@@ -21,9 +22,29 @@ from google.genai import types
 
 from ..config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class GeminiExtractionError(Exception):
     """Erro ao chamar a API do Gemini ou ao interpretar a resposta."""
+
+
+class CpfExtractionError(ValueError):
+    """O CPF retornado não passa na verificação de dígitos."""
+
+
+def cpf_extraido_valido(valor: str) -> bool:
+    cpf = re.sub(r"\D", "", str(valor))
+    if len(cpf) != 11 or len(set(cpf)) == 1:
+        return False
+    for tamanho in (9, 10):
+        soma = sum(int(cpf[i]) * (tamanho + 1 - i) for i in range(tamanho))
+        digito = (soma * 10) % 11
+        if digito == 10:
+            digito = 0
+        if int(cpf[tamanho]) != digito:
+            return False
+    return True
 
 
 def lado_documento_invalido(dados_extraidos: dict, categoria: str) -> bool:
@@ -44,7 +65,13 @@ def _get_client() -> genai.Client:
             "GEMINI_API_KEY não configurada. Copie .env.example para .env e "
             "preencha com sua chave do Google AI Studio."
         )
-    return genai.Client(api_key=settings.gemini_api_key)
+    return genai.Client(
+        api_key=settings.gemini_api_key,
+        http_options=types.HttpOptions(
+            timeout=settings.gemini_timeout_ms,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
 
 
 _CAMPOS_COMUNS: Dict[str, Any] = {
@@ -77,6 +104,9 @@ _INSTRUCAO_BASE = (
     "não estiver visível ou não existir nesse tipo de documento, retorne null "
     "para ele — nunca invente um valor. Preserve acentuação e maiúsculas/"
     "minúsculas como aparecem no documento. Datas sempre no formato DD/MM/AAAA."
+    " O CPF tem 11 dígitos. Copie somente o campo explicitamente identificado como CPF "
+    "(campo 4d da CNH). Não confunda CPF com número de registro, RG, QR-code ou MRZ. "
+    "Confira cada dígito na imagem, sem corrigir ou inventar números."
 )
 
 _SCHEMAS_E_PROMPTS: Dict[str, Dict[str, Any]] = {
@@ -251,23 +281,19 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
 
     Levanta GeminiExtractionError em qualquer falha — a rota decide o que
     fazer com isso, sem derrubar a aplicação.
-    Tenta primeiro o modelo configurado (gemini-3.6-flash) e, caso haja sobrecarga
-    (503 UNAVAILABLE) ou instabilidade de rede, tenta automaticamente o gemini-2.5-flash
-    com retry para garantir que o candidato nunca fique bloqueado.
+    Usa o modelo principal e o fallback configurados, com prazo por chamada.
+    Registra apenas modelo, categoria e código do erro, sem dados pessoais.
     """
-    import time
-
     config_extracao = _SCHEMAS_E_PROMPTS.get(categoria.upper(), _SCHEMAS_E_PROMPTS["OUTRO"])
     client = _get_client()
 
-    modelos = [settings.gemini_model]
-    if "gemini-2.5-flash" not in modelos:
-        modelos.append("gemini-2.5-flash")
-
-    ultimo_erro = None
+    modelos = list(dict.fromkeys(m for m in (
+        settings.gemini_model, settings.gemini_fallback_model
+    ) if m))
+    erros = []
 
     for modelo in modelos:
-        for tentativa in range(2):  # até 2 tentativas por modelo
+        for usar_schema in (True, False):
             try:
                 response = client.models.generate_content(
                     model=modelo,
@@ -277,50 +303,46 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
                     ],
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        response_schema=config_extracao["schema"],
+                        response_schema=config_extracao["schema"] if usar_schema else None,
                         temperature=0.1,
                     ),
                 )
                 dados = _parse_json_response(response.text)
+                if dados.get("cpf") and not cpf_extraido_valido(dados["cpf"]):
+                    raise CpfExtractionError("CPF extraído inválido.")
                 return _filtrar_campos_resposta(dados, config_extracao["schema"])
             except Exception as exc:
-                ultimo_erro = exc
-                err_msg = str(exc).lower()
-
-                # Se for cota temporária excedida (429), aguarda 2s e tenta novamente
-                if "429" in err_msg or "resource_exhausted" in err_msg or "quota" in err_msg:
-                    time.sleep(2.0)
+                codigo = getattr(exc, "code", None)
+                erros.append((codigo, type(exc).__name__))
+                logger.warning("Extração Gemini falhou: modelo=%s categoria=%s codigo=%s tipo=%s",
+                               modelo, categoria, codigo, type(exc).__name__)
+                if codigo in (401, 403):
+                    raise GeminiExtractionError(
+                        "A IA recusou a autenticação ou o acesso. O administrador deve conferir a chave e as permissões."
+                    ) from exc
+                # Remover o schema só ajuda em falhas de formato, não em
+                # sobrecarga, cota ou modelo indisponível.
+                if usar_schema and (codigo == 400 or isinstance(exc, ValueError)):
                     continue
+                break
 
-                # Se for erro temporário de rede ou 503 sobrecarga, espera 1s e tenta novamente
-                if "503" in err_msg or "unavailable" in err_msg or "getaddrinfo" in err_msg or "connection" in err_msg:
-                    time.sleep(1.0)
-                    continue
-
-                # Se o schema estrito falhou por formato, tenta fallback simples com prompt json
-                fallback_prompt = (
-                    config_extracao["prompt"]
-                    + " Responda SOMENTE em JSON válido, sem explicações e sem markdown. "
-                    + "Se não houver dado, use null."
-                )
-                try:
-                    response_fallback = client.models.generate_content(
-                        model=modelo,
-                        contents=[fallback_prompt, types.Part.from_bytes(data=conteudo, mime_type=mime_type)],
-                        config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1),
-                    )
-                    dados = _parse_json_response(response_fallback.text)
-                    return _filtrar_campos_resposta(dados, config_extracao["schema"])
-                except Exception as fallback_exc:
-                    ultimo_erro = fallback_exc
-                    break
-
-    ultimo_msg = str(ultimo_erro).lower()
-    if "429" in ultimo_msg or "resource_exhausted" in ultimo_msg or "quota" in ultimo_msg:
+    codigos = {codigo for codigo, _ in erros}
+    if any(tipo == "CpfExtractionError" for _, tipo in erros):
         raise GeminiExtractionError(
-            "Limite temporário de requisições por minuto da IA atingido. Aguarde cerca de 30 segundos e clique em Reenviar."
+            "A IA não confirmou um CPF válido no documento. Envie uma imagem mais nítida ou solicite revisão manual."
         )
-
+    if 429 in codigos:
+        raise GeminiExtractionError(
+            "A cota de uso da IA foi atingida. Aguarde e tente novamente; se persistir, confira a cota do projeto."
+        )
+    if 503 in codigos:
+        raise GeminiExtractionError(
+            "A IA está sobrecarregada no momento. Aguarde e clique em Reenviar."
+        )
+    if erros and all(codigo == 404 for codigo, _ in erros):
+        raise GeminiExtractionError(
+            "Os modelos de IA configurados não estão disponíveis. O administrador deve revisar a configuração."
+        )
     raise GeminiExtractionError(
-        f"Instabilidade temporária na API da IA. Clique em 'Reenviar' para tentar novamente."
+        "A IA não concluiu a extração no prazo ou retornou dados inválidos. Clique em Reenviar."
     )

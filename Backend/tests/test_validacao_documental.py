@@ -15,6 +15,38 @@ def membro_mae():
     return SimpleNamespace(id=1, nome_completo="Jocelina da Silva", parentesco="Mãe")
 
 
+@pytest.mark.parametrize("nome,cpf", [
+    ("Outra Pessoa", "99988877766"),
+    ("Gabriel Mendes", "99988877766"),
+    ("Outra Pessoa", None),
+])
+def test_rejeita_identidade_divergente_do_titular(candidato, nome, cpf):
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        "CNH", {"nome": nome, "cpf": cpf, "numero_cnh": "teste"},
+        candidato, None, [],
+    )
+    assert not valido
+    assert nivel == "erro"
+    assert "candidato titular" in motivo
+
+
+def test_permite_primeira_identidade_em_cadastro_provisorio():
+    candidato = SimpleNamespace(nome_completo="Candidato (teste)", cpf=None)
+    valido, _, _, _ = validar_documento_no_upload(
+        "CNH", {"nome": "Pessoa Teste", "cpf": "12345678900", "numero_cnh": "teste"},
+        candidato, None, [],
+    )
+    assert valido
+
+
+def test_cpf_formatado_do_titular_confere(candidato):
+    valido, _, _, _ = validar_documento_no_upload(
+        "CNH", {"nome": "Gabriel Mendes", "cpf": "12345678900", "numero_cnh": "teste"},
+        candidato, None, [],
+    )
+    assert valido
+
+
 def test_rejeita_cnh_do_candidato_no_slot_da_mae_por_cpf(candidato, membro_mae):
     """Garante que a CNH do candidato enviada no slot da mãe seja rejeitada na hora pelo CPF."""
     dados_cnh_candidato = {

@@ -12,3 +12,6 @@ venv/
 uploads/
 CONTEXTO_PROJETO.MD
 .pytest_cache/
+
+# Dependências em qualquer pasta, incluindo ferramentas de geração de planilhas.
+node_modules/

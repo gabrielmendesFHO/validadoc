@@ -1,0 +1,26 @@
+[
+  {
+    "id": "T05",
+    "http": 202,
+    "esperado_http": 202,
+    "documento_id": 1,
+    "status_documento": "CONCLUIDO",
+    "observacao": ""
+  },
+  {
+    "id": "T07",
+    "http": 202,
+    "esperado_http": 202,
+    "documento_id": 2,
+    "status_documento": "REJEITADO",
+    "observacao": ""
+  },
+  {
+    "comparacao": {
+      "referencia_titular_confirmada": true,
+      "identidades_diferentes": true,
+      "primeiro_status": "CONCLUIDO",
+      "segundo_status": "REJEITADO"
+    }
+  }
+]

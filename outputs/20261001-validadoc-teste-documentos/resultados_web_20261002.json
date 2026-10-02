@@ -1,0 +1,116 @@
+{
+  "data": "2026-10-02",
+  "ambiente": "Local controlado. Inscrição 9. CNH obrigatória para titular e familiar; RG, verso, residência e holerite opcionais neste processo de teste.",
+  "casos": {
+    "T01": [
+      "Aprovado",
+      "Login do candidato e jornada conferidos no Chrome.",
+      "Web, inscrição 9; web-revisao-manual.jpg."
+    ],
+    "T03": [
+      "Aprovado",
+      "RG frente enviado no seletor RG do KYC e concluído. Cadastro familiar liberado.",
+      "Web, inscrição 9, F03."
+    ],
+    "T04": [
+      "Aprovado",
+      "RG verso concluído no reteste. Falso conflito inicial corrigido ao validar CPF da CNH.",
+      "Web, inscrição 9, F04; RETESTE.md."
+    ],
+    "T05": [
+      "Aprovado",
+      "CNH PDF concluída com CPF válido e correspondente ao cadastro após corrigir leitura inválida inicial.",
+      "Web, inscrição 9, F01; RETESTE.md."
+    ],
+    "T06": [
+      "Aprovado",
+      "Uploads saíram de PROCESSANDO_IA. Resultado concluído, rejeição e alerta apareceram na tela.",
+      "Web, F01 a F06; web-rejeicao.jpg."
+    ],
+    "T07": [
+      "Aprovado",
+      "CNH do familiar enviada no campo do titular foi REJEITADA por identidade diferente.",
+      "Web, F05; web-rejeicao.jpg."
+    ],
+    "T12": [
+      "Aprovado",
+      "Mesmo PDF do titular em outro campo foi bloqueado com mensagem de duplicidade.",
+      "Web, F01 no campo RG do familiar."
+    ],
+    "T13": [
+      "Não executado",
+      "Reenvios de F01 e F04 aceitos e novo resultado visível. Coerência completa do histórico ainda não verificada.",
+      "Web, inscrição 9. Verificação parcial."
+    ],
+    "T17": [
+      "Aprovado",
+      "Cadastro via extração e edição do CPF familiar feitos na web. Valor salvo persistiu ao reabrir.",
+      "Web, F05 e formulário familiar."
+    ],
+    "T18": [
+      "Aprovado",
+      "CNH familiar concluída. Após restaurar CPF correto, auditoria não apresentou divergência de identidade.",
+      "Web, F06 e conferência automática."
+    ],
+    "T19": [
+      "Aprovado",
+      "CPF familiar sintético diferente gerou REVISAO_MANUAL com motivo de divergência. Cadastro restaurado.",
+      "Web, inscrição 9, conferência automática."
+    ],
+    "T20": [
+      "Aprovado",
+      "CPF familiar vazio gerou REVISAO_MANUAL com motivo de ausência. Cadastro restaurado.",
+      "Web, inscrição 9, conferência automática."
+    ],
+    "T21": [
+      "Bloqueado",
+      "F02 está vencido. Não há comprovante recente no pack para executar o cenário positivo.",
+      "F02: emissão há 191 dias."
+    ],
+    "T22": [
+      "Aprovado",
+      "Residência vencida gerou alerta de 191 dias e REVISAO_MANUAL na auditoria.",
+      "Web, F02 e conferência automática."
+    ],
+    "T23": [
+      "Aprovado",
+      "Ausência das CNHs obrigatórias impediu concluir envio. Auditoria listou pendências com PENDENTE.",
+      "Web, inscrição 9 antes de F01/F06."
+    ],
+    "T24": [
+      "Aprovado",
+      "Após concluir ambas as CNHs, envio entrou em PRONTO_AUDITORIA e apareceu na fila.",
+      "Web, F01/F06; web-pronto-auditoria.jpg."
+    ],
+    "T25": [
+      "Aprovado",
+      "Administrador conferiu documento original e dados lado a lado. Motivos persistiram ao recarregar; revisão ficou na fila.",
+      "Web, auditoria 9; web-revisao-manual.jpg."
+    ],
+    "T26": [
+      "Bloqueado",
+      "Não há holerites controlados para testar extração real e cálculo de renda.",
+      "F08 ausente; não substituir por teste unitário."
+    ],
+    "T27": [
+      "Bloqueado",
+      "Faltam holerites e renda controlada exatamente no limite.",
+      "F08 ausente."
+    ],
+    "T28": [
+      "Bloqueado",
+      "Faltam holerites e renda controlada acima do limite com dados consistentes.",
+      "F08 ausente."
+    ],
+    "T29": [
+      "Bloqueado",
+      "Faltam holerites para executar o cenário de renda acima do limite com divergência.",
+      "F08 ausente."
+    ],
+    "T31": [
+      "Aprovado",
+      "Candidato tentou abrir auditoria 9. Acesso restrito a ANALISTA/ADMIN, sem dados internos exibidos.",
+      "Web; proteção de parecer também coberta na rodada API."
+    ]
+  }
+}

@@ -369,28 +369,33 @@ export default function Familia({ onLogout }) {
               />
             </div>
 
-            {formulario.cpf && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <label style={{ fontSize: "13px", fontWeight: "500", color: "#374151" }}>
-                  CPF identificado no documento
-                </label>
-                <input
-                  type="text"
-                  value={formulario.cpf}
-                  readOnly
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    padding: "10px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid #bbf7d0",
-                    fontSize: "14px",
-                    background: "#f0fdf4",
-                    color: "#166534",
-                  }}
-                />
-              </div>
-            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label htmlFor="cpf-familiar" style={{ fontSize: "13px", fontWeight: "500", color: "#374151" }}>
+                CPF do familiar (se disponível)
+              </label>
+              <input
+                id="cpf-familiar"
+                name="cpf"
+                type="text"
+                inputMode="numeric"
+                maxLength={14}
+                value={formulario.cpf}
+                onChange={alterarCampo}
+                placeholder="000.000.000-00"
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #d1d5db",
+                  fontSize: "14px",
+                  background: "#ffffff",
+                }}
+              />
+              <small style={{ color: "#6b7280" }}>
+                Confira o CPF extraído pela IA. Sem CPF, a identidade precisará de revisão manual.
+              </small>
+            </div>
 
             {/* Linha com 2 colunas: Parentesco e Renda */}
             <div

@@ -85,6 +85,19 @@ def validar_documento_no_upload(
                     motivo = f"Documento rejeitado: este documento pertence ao familiar '{m.nome_completo}' e não ao candidato titular."
                     return False, motivo, "erro", motivo
 
+            if cpf_doc and cpf_cand and cpf_doc != cpf_cand:
+                motivo = "Documento rejeitado: o CPF do documento não confere com o CPF do candidato titular."
+                return False, motivo, "erro", motivo
+
+            # O cadastro inicial pode conter apenas um nome provisório. Nesse
+            # caso, o primeiro documento fornece o nome; cadastros identificados
+            # devem ser conferidos antes de liberar o KYC.
+            nome_provisorio = not nome_cand or nome_cand.startswith("CANDIDATO (")
+            cpf_confere = bool(cpf_doc and cpf_cand and cpf_doc == cpf_cand)
+            if nome_doc and not nome_provisorio and nome_doc != nome_cand and not cpf_confere:
+                motivo = "Documento rejeitado: o nome do documento não confere com o candidato titular."
+                return False, motivo, "erro", motivo
+
     # 3. Diagnóstico de qualidade e avisos (o documento é aceito, mas com alertas)
     avisos: List[str] = []
 
