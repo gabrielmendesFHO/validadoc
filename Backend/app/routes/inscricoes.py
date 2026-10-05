@@ -306,6 +306,16 @@ async def extrair_documento_membro(
     return {"nome": nome, "cpf": cpf, "tipo_detectado": tipo_detectado}
 
 
+def _expirar_processamento_interrompido(db, documento):
+    if documento.status_processamento != "PROCESSANDO_IA" or not documento.criado_em:
+        return
+    if (datetime.now() - documento.criado_em).total_seconds() > 120:
+        documento.status_processamento = "ERRO_EXTRACAO"
+        documento.mensagem_erro = "Tempo limite na análise pela IA. Clique em Reenviar."
+        db.add(documento)
+        db.commit()
+
+
 def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
     ultimo_por_solicitado = {
         doc.solicitado_id: doc
@@ -327,14 +337,8 @@ def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
 
         mensagem = (ultima_analise.parecer if ultima_analise and ultima_analise.parecer else doc.mensagem_erro) or None
 
+        _expirar_processamento_interrompido(db, doc)
         if doc.status_processamento == "PROCESSANDO_IA":
-            idade_segundos = (datetime.now() - doc.criado_em).total_seconds() if doc.criado_em else 0
-            if idade_segundos > 120:
-                doc.status_processamento = "ERRO_EXTRACAO"
-                doc.mensagem_erro = "Tempo limite na análise pela IA. Clique em Reenviar."
-                db.add(doc)
-                db.commit()
-                return "ERRO", doc.id, "erro", doc.mensagem_erro
             return "PROCESSANDO", doc.id, None, "Documento em análise pela Inteligência Artificial..."
         elif doc.status_processamento == "REJEITADO":
             return "REJEITADO", doc.id, "erro", mensagem
@@ -696,6 +700,9 @@ def consultar_kyc(
         .all()
     ):
         ultimo_por_solicitado[documento.solicitado_id] = documento
+
+    for documento in ultimo_por_solicitado.values():
+        _expirar_processamento_interrompido(db, documento)
 
     return {
         "inscricao_id": inscricao.id,

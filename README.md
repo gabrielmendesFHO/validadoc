@@ -3,6 +3,10 @@
 O ValidaDoc possui uma API em FastAPI (`Backend`) e uma interface em React +
 Vite (`Frontend`). No desenvolvimento, mantenha os dois servidores em execucao.
 
+A versão de testes Render Free + Neon e seu provisionamento separado estão
+documentados em [docs/HOMOLOGACAO.md](docs/HOMOLOGACAO.md). O build do frontend
+exige `VITE_API_URL` HTTPS; `npm run dev` mantém o endereço local como padrão.
+
 ## Requisitos
 
 - Python 3.11 ou superior

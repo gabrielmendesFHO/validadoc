@@ -1,11 +1,13 @@
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from .routes import auth, documentos, inscricoes, integracao, operacional
 
 from .config import settings
 from .dependencies import exigir_perfil
 from .db import (
+    engine,
     compare_models_to_db,
     get_db,
     get_reflected_class,
@@ -17,7 +19,7 @@ app = FastAPI(title=settings.app_name)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,6 +35,16 @@ app.include_router(operacional.router)
 @app.get("/")
 def read_root():
     return {"message": f"Welcome to {settings.app_name}"}
+
+
+@app.get("/health")
+def health():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="Banco temporariamente indisponível") from None
+    return {"status": "ok"}
 
 
 @app.get("/tables")

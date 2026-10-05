@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 pymysql
+psycopg[binary]==3.3.6
 python-dotenv
 google-genai
 opencv-python-headless

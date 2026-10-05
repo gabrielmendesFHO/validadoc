@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     TIMESTAMP,
     text,
+    func,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -113,7 +114,8 @@ class Inscricoes(Base):
     ultima_atividade = Column(
         TIMESTAMP, 
         nullable=False, 
-        server_default=text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=func.current_timestamp(),
     )
     ultimo_acesso = Column(TIMESTAMP, nullable=True)
     alertas_dificuldade = Column(Integer, nullable=False, server_default=text("0"))

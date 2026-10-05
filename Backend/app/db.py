@@ -1,12 +1,15 @@
 from sqlalchemy import MetaData, create_engine, inspect
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import sessionmaker
+from threading import Lock
 
 from .config import settings
+from .database_config import normalize_database_url
+from .services.provisionamento import tipos_equivalentes
 from .models import (
     AnalisesOcr,
     DocumentosEnviados,
+    DocumentoBinario,
     DocumentosSolicitados,
     Inscricoes,
     Instituicoes,
@@ -16,18 +19,19 @@ from .models import (
 )
 
 engine = create_engine(
-    settings.database_url,
+    normalize_database_url(settings.database_url),
     future=True,
     pool_pre_ping=True,       # Testa a conexão antes de usar (você já tinha)
     pool_recycle=1800,        # Recicla conexões a cada 30 minutos (Evita o WinError 10054)
     pool_timeout=30,          # Espera até 30 segundos por uma conexão livre
-    pool_size=10,             # Mantém até 10 conexões abertas
-    max_overflow=20           # Permite até 20 conexões extras em picos de uso
+    pool_size=2 if settings.app_env == "homologation" else 10,
+    max_overflow=2 if settings.app_env == "homologation" else 20,
 )
 
 reflection_metadata = MetaData()
 Base = automap_base(metadata=reflection_metadata)
 automap_initialized = False
+_automap_lock = Lock()
 
 
 def _classname_for_table(base, tablename, table):
@@ -35,24 +39,19 @@ def _classname_for_table(base, tablename, table):
 
 
 def init_automap():
-    global automap_initialized
+    global automap_initialized, Base
     if automap_initialized:
         return
 
-    reflection_metadata.clear()
-    try:
-        Base.prepare(
-            engine,
-            reflect=True,
-            classname_for_table=_classname_for_table,
-        )
-    except InvalidRequestError as exc:
-        if "already defined" not in str(exc):
-            raise
-    automap_initialized = True
+    with _automap_lock:
+        if automap_initialized:
+            return
+        reflected = automap_base()
+        reflected.prepare(autoload_with=engine, classname_for_table=_classname_for_table)
+        Base = reflected
+        automap_initialized = True
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, future=True)
-init_automap()
 
 MODEL_CLASSES = {
     cls.__tablename__: cls
@@ -64,6 +63,7 @@ MODEL_CLASSES = {
         Inscricoes,
         MembrosFamilia,
         DocumentosEnviados,
+        DocumentoBinario,
         AnalisesOcr,
     )
 }
@@ -82,6 +82,7 @@ def get_table_names():
 
 
 def get_reflected_class(table_name: str):
+    init_automap()
     return getattr(Base.classes, table_name, None)
 
 
@@ -119,9 +120,9 @@ def compare_models_to_db():
         for column_name in sorted(set(model_columns) & set(db_columns)):
             model_column = model_columns[column_name]
             db_column = db_columns[column_name]
-            model_type = str(model_column.type).lower()
-            db_type = str(db_column["type"]).lower()
-            if model_type != db_type:
+            model_type = model_column.type.compile(dialect=engine.dialect).lower()
+            db_type = db_column["type"].compile(dialect=engine.dialect).lower()
+            if not tipos_equivalentes(model_column.type, db_column["type"]):
                 field_mismatches.append(
                     {
                         "column": column_name,

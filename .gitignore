@@ -9,6 +9,8 @@ venv/
 .idea/
 *.sqlite3
 .env
+.env.*
+!.env.example
 uploads/
 CONTEXTO_PROJETO.MD
 .pytest_cache/

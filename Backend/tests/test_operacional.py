@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import DefaultClause, create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -34,12 +34,7 @@ app_test.include_router(inscricoes_router)
 @pytest.fixture(autouse=True)
 def banco_limpo():
     Base.metadata.drop_all(engine)
-    default_mysql = Inscricoes.__table__.c.ultima_atividade.server_default
-    Inscricoes.__table__.c.ultima_atividade.server_default = DefaultClause(text("CURRENT_TIMESTAMP"))
-    try:
-        Base.metadata.create_all(engine)
-    finally:
-        Inscricoes.__table__.c.ultima_atividade.server_default = default_mysql
+    Base.metadata.create_all(engine)
     db = TestingSession()
     db.add(ProcessosBolsa(id=1, nome="Bolsa 2026", data_inicio=date(2026, 1, 1), data_fim=date(2026, 12, 31)))
     db.add_all([
@@ -235,6 +230,25 @@ def test_kyc_nao_avanca_por_identidade_antiga_apos_reenvio_rejeitado(client):
     app_test.dependency_overrides[get_current_user] = lambda: candidato
     response = client.post("/inscricoes/2/kyc/concluir")
     assert response.status_code == 409
+
+
+@pytest.mark.parametrize('idade,esperado', [(30, 'PROCESSANDO_IA'), (180, 'ERRO_EXTRACAO')])
+def test_kyc_libera_reenvio_interrompido_e_preserva_processamento_recente(client, idade, esperado):
+    _preparar_reenvio(antigo='PROCESSANDO_IA', atual='PROCESSANDO_IA')
+    with TestingSession() as db:
+        db.get(Inscricoes, 2).status_funil = StatusJornada.KYC_PENDENTE
+        db.get(DocumentosEnviados, 2).criado_em = datetime.now() - timedelta(seconds=idade)
+        db.commit()
+        candidato = db.get(Usuarios, 3)
+        db.expunge(candidato)
+    app_test.dependency_overrides[get_current_user] = lambda: candidato
+    response = client.get('/inscricoes/2/kyc')
+    assert response.status_code == 200
+    assert response.json()['documentos'][0]['status'] == esperado
+    with TestingSession() as db:
+        assert db.get(DocumentosEnviados, 2).status_processamento == esperado
+        assert db.get(DocumentosEnviados, 1).status_processamento == 'PROCESSANDO_IA'
+        assert db.get(Inscricoes, 2).status_funil == StatusJornada.KYC_PENDENTE
 
 
 @pytest.mark.parametrize("membro_id", [None, 1])

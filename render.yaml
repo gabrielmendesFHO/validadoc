@@ -1,0 +1,46 @@
+# Segredos e URLs reais serão informados no assistente de criação do Blueprint.
+# Não cria Render Postgres (o banco é Neon) nem serviços pagos.
+services:
+  - type: web
+    name: validadoc-api
+    runtime: python
+    plan: free
+    region: ohio
+    rootDir: Backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: APP_ENV
+        value: homologation
+      - key: SMTP_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+  - type: web
+    name: validadoc-web
+    runtime: static
+    rootDir: Frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

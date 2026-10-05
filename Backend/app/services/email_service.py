@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 def enviar_email_boas_vindas(email_destino: str, nome_candidato: str, senha_temporaria: str):
     """Envia um e-mail de boas-vindas com a senha provisória gerada."""
     
+    if not settings.smtp_enabled:
+        return
     if not settings.smtp_username or not settings.smtp_password:
         logger.warning("SMTP não configurado. O e-mail de boas-vindas não será enviado.")
         return
