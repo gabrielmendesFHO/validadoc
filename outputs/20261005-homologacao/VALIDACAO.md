@@ -1,10 +1,10 @@
-# Validação da preparação Render + Neon — 05/10/2026
+# Validação da homologação Render + Neon — 05/10/2026
 
 ## Estado
 
 Configuração e PostgreSQL implementados. Projeto Neon **ValidaDoc-Homologacao** criado no plano Free em Ohio, PostgreSQL 18. Conexão agrupada com TLS guardada em arquivo ignorado pelo Git; segredos não constam deste relatório. `init-db` executado duas vezes, seguido de `check-db`: schema compatível, sem duplicação do processo. Nenhum pack pessoal ou banco MariaDB foi copiado.
 
-**Site/API ainda não publicados.** Usuário autorizou commit/push da branch `codex/homologacao-render-neon` e publicação Free, sem merge na main. Faltam os serviços Render e a rodada fictícia remota. As URLs de exemplo não são endereços verificados. Login Render confirmado na conta do usuário; serviços existentes de outro projeto não foram alterados.
+**Site e API publicados para testes do grupo.** [Site](https://validadoc-web.onrender.com) e [saúde da API](https://validadoc-api.onrender.com/health) verificados. API Python Free em Ohio e site Static; Neon Free PostgreSQL 18. Branch `codex/homologacao-render-neon` enviada com autorização explícita, sem merge na main. API no commit `0828b1c`, site no `4d562ab` (correção de reenvio); commit posterior registra evidências/documentação, sem alteração do código publicado. Os serviços existentes de outro projeto não foram alterados. Quatro contas fictícias com senhas fortes próprias estão em arquivo local ignorado; senhas não são publicadas.
 
 ## Evidências locais
 
@@ -35,16 +35,57 @@ Nesta execução foram encontrados seis arquivos de formatos aceitos no diretór
 
 O build mantém aviso de bundle de aproximadamente 742 kB; divisão de código pode ser feita depois. O SMTP fica desativado; mensagens de boas-vindas não são enviadas.
 
-## Pendências da publicação
+## Rodada remota pelo navegador
 
-- Revisão independente concluída: três problemas importantes corrigidos; nenhuma observação menor pendente.
-- Commit/push especificamente autorizados; envio da branch em andamento.
-- Criar API Free e site Static no Render, preencher segredos privados e conferir os dois domínios reais/CORS.
-- Criar contas próprias/fictícias com senha forte e executar login, KYC, família, upload/reenvio, conclusão, fila/auditoria e bloqueios por perfil/inscrição.
-- Verificar refresh de rotas profundas, cold start e interrupção da extração no ambiente remoto.
-- Medir a amostra completa/uso de banco e a memória da API inteira antes de considerar a hospedagem estável.
+| Caso | Resultado observado |
+|---|---|
+| Login candidato | Acesso à jornada da própria inscrição |
+| KYC CNH fictícia | Extração de nome/CPF, preenchimento e avanço à família |
+| Grupo familiar | Familiar fictício salvo e preservado após refresh direto em `/familia` |
+| Duplicidade | Mesmo binário do titular recusado para documento do familiar |
+| Indisponibilidade Gemini | Modelo principal respondeu 503; fallback concluiu KYC. Outra tentativa recebeu 503/504 e mostrou erro recuperável |
+| Reenvio do mesmo arquivo | Falha reproduzida: selecionar o mesmo arquivo não disparava evento. Seletor corrigido no dashboard e KYC; navegador confirmou limpeza e novo envio efetivo |
+| Identidade divergente | CNH fictícia com CPF do titular rejeitada para o familiar |
+| Versão corrigida | CNH fictícia com CPF do familiar extraída e aceita |
+| Conclusão documental | Inscrição avançou para `PRONTO_AUDITORIA` e apareceu na fila |
+| Analista | Login, dashboard, fila e auditoria carregaram |
+| Refresh `/auditoria/1` | Tela e documento carregaram normalmente |
+| Histórico | Quatro envios preservados: titular concluído, erro de extração, CPF rejeitado e familiar corrigido |
+| Original criptografado | Documento exibido na auditoria após descriptografia pelo backend |
+| Conferência automática | Alertas de renda/holerite ausentes na amostra, exigindo revisão manual |
+| Parecer fictício | Salvo como teste; candidato viu `CONCLUIDO`, resultado e justificativa |
+| Candidato em auditoria | Interface mostra ação restrita a ANALISTA/ADMIN; não retorna documentos |
+| API com outro candidato | 403 para KYC, checklist, membros, detalhe, fila, dashboard interno e arquivo da inscrição alheia; própria inscrição 200; arquivo sem login 401 |
+| CORS | Origem real do site aceita; origem não autorizada recebe 400 no preflight |
+| Reinício Render | Solicitado durante envio; a análise concluiu antes da interrupção efetiva, e os registros/arquivos persistiram. Não reproduziu perda de tarefa |
+| Hibernação | Após mais de 16 minutos sem tráfego, primeiro login ADMIN concluiu sem repetir envio; acesso observado em até 71 segundos. Render registrou novo processo às 09:29:51 BRT e `/health` retornou 200 novamente |
 
-Há tarefas de IA em processo, sem fila durável. Reinício pode interromper a extração; recuperação inicial depende de novo envio, preservando o histórico. Guia operacional e backup em `docs/HOMOLOGACAO.md`.
+O bundle remoto `/assets/index-CvbQq2jM.js` foi baixado e conferido: URL HTTPS correta; sem API local, conexão PostgreSQL, chave Gemini, JWT, Fernet ou senhas privadas.
+
+Regressão de reenvio observada no navegador antes da correção e verificada após publicar `4d562ab`; lint, três testes Node e build passaram. O arquivo do input é capturado antes de limpar o seletor, permitindo selecionar novamente o mesmo binário. Erros 503/504 são indisponibilidade do provedor; a rodada não revelou erro de autenticação da chave. Não comprova cota nem disponibilidade contínua do Gemini.
+
+Os documentos são imagens sintéticas com a indicação **DOCUMENTO FICTÍCIO / SEM VALIDADE**. Esta rodada comprova integração, extração e fluxo; não comprova autenticidade forense nem elegibilidade para bolsa. O parecer informa expressamente que nenhuma concessão real foi feita. SMTP permanece desativado, apesar do texto genérico de e-mail presente na jornada.
+
+![Parecer fictício salvo na versão publicada](auditoria-publicada.png)
+
+## Backup e memória da API completa
+
+Backup do Neon pela conexão direta com TLS, usando `pg_dump` 18, restaurado sem `--clean` em banco local PostgreSQL 18 novo e vazio. Conferidos 4 usuários, 2 inscrições, 1 membro, 4 documentos/binários e 4 análises. A chave Fernet privada descriptografou o primeiro documento restaurado, com bytes idênticos à fixture original. Dump/credenciais permanecem ignorados, fora do Git; a chave está separada do dump. Não altera o Neon nem o MariaDB local.
+
+Num clone local do backup, a API inteira rodou em container de 512 MiB. Um upload sintético JPEG de 4032×3024 (463.472 bytes) passou pelo endpoint real, criptografia, PostgreSQL e extração: HTTP 202, pico amostrado de 273,4 MiB em 24 medições Docker, `OOMKilled=false`. A IA terminou em `ERRO_EXTRACAO` por indisponibilidade. Esta medição não demonstra sucesso da IA nesse arquivo nem estabilidade para imagens pessoais/concorrência; a amostra controlada anterior atingiu 491,6 MiB no processamento local.
+
+Interrupção efetiva verificada no clone local: processo da API encerrado imediatamente após HTTP 202 do documento fictício #6; após 125 segundos e novo startup, o KYC marcou `ERRO_EXTRACAO` por timeout. Reenvio do mesmo arquivo retornou HTTP 202, criou #7 e preservou #6. Não há retomada automática. O reinício remoto observado continuou inconclusivo quanto à perda de tarefa.
+
+![Serviços publicados no Render](render-publicado.png)
+
+## Limitações e próximos testes
+
+- Reproduzir perda efetiva de tarefa no Render: o reinício observado permitiu concluir a extração. A recuperação por timeout de 120 segundos está coberta pelas regressões automatizadas, mas a interrupção remota permaneceu inconclusiva.
+- Medir os 50 documentos quando estiverem disponíveis, uso de armazenamento e uploads simultâneos. Banco medido nesta rodada: 8.552.448 bytes; quatro binários Fernet somaram 212.236 bytes, incluindo os reenvios.
+- Não há fila persistente/retomada automática; se o processo parar durante a IA, conferir a tela e reenviar após o timeout.
+- Quotas do Gemini são separadas; o provedor apresentou indisponibilidade intermitente durante os testes.
+
+Guia operacional e backup em `docs/HOMOLOGACAO.md`.
 
 ## Revisão e regressões finais
 
@@ -53,6 +94,6 @@ As três constatações foram reproduzidas com testes falhando e corrigidas na m
 ## Decisões de execução
 
 - Worktree nativo a partir de HEAD para preservar a versão local em execução; integração posterior permanece necessária.
-- Ledger mantido enquanto não existem commits, pois o plano proíbe commit/push automático; remover somente depois de preservar o registro.
+- Ledger preservado como registro local. A autorização posterior permitiu os commits e o push da branch de homologação.
 - PostgreSQL testado/administrado em Linux devido ao bloqueio da DLL Windows; Windows precisa desse ambiente Docker para os comandos Neon.
-- Apenas atualizações compatíveis de Axios/brace-expansion para eliminar avisos reais do audit; verificados lint/build, rodada de navegador ainda pendente.
+- Apenas atualizações compatíveis de Axios/brace-expansion para eliminar avisos reais do audit; verificados lint/build e a rodada remota pelo navegador.

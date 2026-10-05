@@ -2,6 +2,12 @@
 
 Esta implantação é para testes dos três integrantes do TCC. O MariaDB local continua separado. Não importar o dump antigo nem copiar documentos ou contas locais para a nuvem.
 
+## Acesso à versão publicada
+
+Publicada em 05/10/2026: [ValidaDoc de testes](https://validadoc-web.onrender.com) e [saúde da API](https://validadoc-api.onrender.com/health). Fonte: branch `codex/homologacao-render-neon`, sem merge na main. Conferir resultados em `outputs/20261005-homologacao/VALIDACAO.md`. Deployments continuam manuais.
+
+As quatro contas fictícias (ADMIN, ANALISTA e dois CANDIDATO) têm senhas fortes próprias no arquivo privado `Backend/.env.contas-homologacao` do worktree de homologação, ignorado pelo Git. A primeira inscrição já concluiu o cenário de teste; a outra serve para iniciar nova jornada. Para criar contas individuais do grupo, usar o CLI abaixo e guardar as senhas em canal privado.
+
 ## Arquitetura e configuração
 
 React estático → FastAPI Free → PostgreSQL Neon Free. Os documentos ficam criptografados no PostgreSQL. O navegador recebe somente `VITE_API_URL`; nenhuma senha ou chave do backend pode começar com `VITE_`.
