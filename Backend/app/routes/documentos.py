@@ -24,6 +24,7 @@ from ..services.gemini_service import (
     extrair_dados_documento,
 )
 from ..services.image_processing import preparar_para_ia_multimodal
+from ..services.historico_documental import ultimos_documentos
 from ..services.validacao_documental import validar_documento_no_upload
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
@@ -68,9 +69,16 @@ def _processar_ia_em_background(
         if documento is None:
             return
 
+        # Não manter uma leitura antiga do banco enquanto a IA responde.
+        # Um reenvio pode ser registrado durante essa chamada externa.
+        db.rollback()
+
         # Chamada à IA
         dados_extraidos = extrair_dados_documento(conteudo_para_ia, mime_para_ia, nome_documento)
 
+        documento = db.get(DocumentosEnviados, documento_id)
+        if documento is None:
+            return
         candidato = db.get(Usuarios, candidato_id)
         membro = db.get(MembrosFamilia, membro_id) if membro_id else None
         outros_membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()
@@ -97,8 +105,15 @@ def _processar_ia_em_background(
             documento.mensagem_erro = mensagem_feedback if nivel_alerta == "aviso" else None
             status_auditoria = "POSSIVEL_DIVERGENCIA" if nivel_alerta == "aviso" else "EXTRAIDO"
 
+            identidade_vigente = False
+            if membro_id is None and nome_documento in {"RG", "CNH"}:
+                envios = db.query(DocumentosEnviados).filter_by(
+                    inscricao_id=inscricao_id, solicitado_id=documento.solicitado_id, membro_id=None,
+                ).all()
+                identidade_vigente = any(d.id == documento_id for d in ultimos_documentos(envios))
+
             # Autopreenchimento de nome e CPF do candidato a partir do RG/CNH
-            if membro_id is None and nome_documento in {"RG", "CNH"} and candidato:
+            if identidade_vigente and candidato:
                 nome_extraido = dados_extraidos.get("nome")
                 cpf_extraido = dados_extraidos.get("cpf")
                 if nome_extraido and (
@@ -111,7 +126,7 @@ def _processar_ia_em_background(
 
             # A validação do documento de identidade conclui o KYC e libera
             # imediatamente o cadastro do grupo familiar.
-            if membro_id is None and nome_documento in {"RG", "CNH"}:
+            if identidade_vigente:
                 inscricao = db.get(Inscricoes, inscricao_id)
                 if inscricao and inscricao.status_funil == StatusJornada.KYC_PENDENTE:
                     inscricao.status_funil = StatusJornada.FAMILIA_PENDENTE

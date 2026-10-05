@@ -20,6 +20,7 @@ from ..models import (
 from ..services.regras_negocio import auditar_inscricao
 from ..services.image_processing import preparar_para_ia_multimodal
 from ..services.gemini_service import GeminiExtractionError, extrair_dados_documento
+from ..services.historico_documental import ultimos_documentos as _ultimos_documentos
 
 router = APIRouter(prefix="/inscricoes", tags=["Inscrições"])
 
@@ -253,7 +254,8 @@ def concluir_documentos(inscricao_id: int, db: Session = Depends(get_db), usuari
     obrigatorios = {s.id for s in db.query(DocumentosSolicitados).filter_by(processo_id=inscricao.processo_id).all() if s.obrigatorio}
     pessoas = [None] + [m.id for m in db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).all()]
     for membro_id in pessoas:
-        concluidos = {d.solicitado_id for d in db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id, membro_id=membro_id).all() if d.status_processamento == "CONCLUIDO"}
+        enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id, membro_id=membro_id).all()
+        concluidos = {d.solicitado_id for d in _ultimos_documentos(enviados) if d.status_processamento == "CONCLUIDO"}
         if obrigatorios - concluidos:
             raise HTTPException(status_code=409, detail="Ainda existem documentos obrigatórios pendentes de validação.")
     inscricao.status_funil = StatusJornada.PRONTO_AUDITORIA
@@ -305,13 +307,11 @@ async def extrair_documento_membro(
 
 
 def _gerar_checklist_para_pessoa(db, membro_id_alvo, solicitados, enviados):
-    ultimo_por_solicitado = {}
-    for doc in enviados:
-        if doc.membro_id != membro_id_alvo:
-            continue
-        anterior = ultimo_por_solicitado.get(doc.solicitado_id)
-        if anterior is None or doc.criado_em >= anterior.criado_em:
-            ultimo_por_solicitado[doc.solicitado_id] = doc
+    ultimo_por_solicitado = {
+        doc.solicitado_id: doc
+        for doc in _ultimos_documentos(enviados)
+        if doc.membro_id == membro_id_alvo
+    }
 
     def status_do_item(solicitado_id):
         doc = ultimo_por_solicitado.get(solicitado_id)
@@ -545,7 +545,7 @@ def _coletar_documentos_auditoria(db: Session, enviados_pessoa, solicitado_por_i
     documentos_com_analise = []
     partes_rg = []
     
-    for doc in enviados_pessoa:
+    for doc in _ultimos_documentos(enviados_pessoa):
         categoria = solicitado_por_id.get(doc.solicitado_id, "OUTRO")
         ultima_analise = (
             db.query(AnalisesOcr)
@@ -603,7 +603,9 @@ def auditar_inscricao_endpoint(
     obrigatorios = {s.id for s in solicitados if s.obrigatorio}
     solicitado_por_id = {s.id: s.nome_documento for s in solicitados}
 
-    enviados = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
+    enviados = _ultimos_documentos(
+        db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao_id).all()
+    )
     
     # 1. Checagem de documentos obrigatórios para o Candidato
     enviados_candidato = [d for d in enviados if d.membro_id is None]
@@ -688,13 +690,12 @@ def consultar_kyc(
         .all()
     )
     ultimo_por_solicitado = {}
-    for documento in (
+    for documento in _ultimos_documentos(
         db.query(DocumentosEnviados)
         .filter_by(inscricao_id=inscricao.id, membro_id=None)
-        .order_by(DocumentosEnviados.id.desc())
         .all()
     ):
-        ultimo_por_solicitado.setdefault(documento.solicitado_id, documento)
+        ultimo_por_solicitado[documento.solicitado_id] = documento
 
     return {
         "inscricao_id": inscricao.id,
@@ -728,18 +729,17 @@ def concluir_kyc(
     if inscricao.status_funil == StatusJornada.ABANDONO:
         raise HTTPException(status_code=403, detail="Esta inscrição foi abandonada e não pode avançar nas etapas.")
 
-    identidade_validada = (
+    identidades = (
         db.query(DocumentosEnviados)
         .join(DocumentosSolicitados)
         .filter(
             DocumentosEnviados.inscricao_id == inscricao.id,
             DocumentosEnviados.membro_id.is_(None),
-            DocumentosEnviados.status_processamento == "CONCLUIDO",
             DocumentosSolicitados.nome_documento.in_(("RG", "CNH")),
         )
-        .first()
+        .all()
     )
-    if identidade_validada is None:
+    if not any(doc.status_processamento == "CONCLUIDO" for doc in _ultimos_documentos(identidades)):
         raise HTTPException(
             status_code=409,
             detail="Aguarde a validação de um RG ou CNH aprovado antes de continuar.",

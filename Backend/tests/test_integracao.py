@@ -16,7 +16,9 @@ app_integracao.include_router(integracao_router)
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # O pré-cadastro agenda e-mail; testes não devem acessar o SMTP configurado.
+    monkeypatch.setattr("app.routes.integracao.enviar_email_boas_vindas", lambda **kwargs: None)
     # Substitui validação de token JWT por retorno direto do usuário admin fake a cada requisição do fixture client
     app_integracao.dependency_overrides[get_current_user] = lambda: _usuario_admin_fake
     yield TestClient(app_integracao)
