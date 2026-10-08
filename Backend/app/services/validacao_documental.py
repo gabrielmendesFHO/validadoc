@@ -63,6 +63,11 @@ def validar_documento_no_upload(
                 motivo = f"Documento rejeitado: a identidade está em nome do candidato titular ({dados_extraidos.get('nome')}) e não do familiar."
                 return False, motivo, "erro", motivo
 
+            cpf_membro = _normalizar_cpf(getattr(membro, "cpf", None))
+            if cpf_doc and cpf_membro and cpf_doc != cpf_membro:
+                motivo = "Documento rejeitado: o CPF do documento não confere com o CPF do familiar cadastrado."
+                return False, motivo, "erro", motivo
+
             # O nome no documento deve conferir com o familiar selecionado
             nome_membro = _normalizar_nome(getattr(membro, "nome_completo", ""))
             if nome_doc and nome_membro:

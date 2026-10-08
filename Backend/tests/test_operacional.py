@@ -340,3 +340,60 @@ def test_extracao_considera_reenvio_registrado_durante_chamada_da_ia(monkeypatch
         assert db.get(DocumentosEnviados, 2).status_processamento == "CONCLUIDO"
         assert db.get(DocumentosEnviados, 3).status_processamento == "REJEITADO"
         assert db.get(Inscricoes, 2).status_funil == StatusJornada.KYC_PENDENTE
+
+
+def test_extracao_rejeita_cpf_divergente_do_familiar_e_aceita_reenvio_corrigido(monkeypatch):
+    with TestingSession() as db:
+        db.get(Inscricoes, 2).status_funil = StatusJornada.KYC_PENDENTE
+        candidato = db.get(Usuarios, 3)
+        candidato.nome_completo = "Candidato (Teste)"
+        candidato.cpf = None
+        db.add(MembrosFamilia(id=1, inscricao_id=2, nome_completo="Familiar Ficticio", cpf="529.982.247-25"))
+        db.add(DocumentosSolicitados(id=1, processo_id=1, nome_documento="CNH", obrigatorio=1))
+        db.add(DocumentosEnviados(
+            id=1, inscricao_id=2, solicitado_id=1, membro_id=1, status_processamento="PROCESSANDO_IA",
+            criado_em=datetime(2026, 10, 5, 10),
+        ))
+        db.commit()
+
+    dados = {
+        "nome": "Familiar Ficticio", "cpf": "390.533.447-05", "numero_cnh": "12345678901",
+        "legibilidade": 95, "documento_integro": True,
+    }
+    monkeypatch.setattr(documentos_routes, "SessionLocal", TestingSession)
+    monkeypatch.setattr(documentos_routes, "extrair_dados_documento", lambda *_args: dados.copy())
+    documentos_routes._processar_ia_em_background(1, b"ficticio", "image/jpeg", "CNH", 2, 3, 1)
+
+    with TestingSession() as db:
+        documento = db.get(DocumentosEnviados, 1)
+        analise = db.query(AnalisesOcr).filter_by(documento_id=1).one()
+        assert documento.status_processamento == "REJEITADO"
+        assert analise.status_auditoria == "REJEITADO"
+        assert "CPF do documento não confere com o CPF do familiar cadastrado" in documento.mensagem_erro
+        assert analise.parecer == documento.mensagem_erro
+        assert "390.533.447-05" not in analise.parecer
+        assert "529.982.247-25" not in analise.parecer
+        assert db.get(Inscricoes, 2).status_funil == StatusJornada.KYC_PENDENTE
+        assert db.get(Usuarios, 3).nome_completo == "Candidato (Teste)"
+        assert db.get(Usuarios, 3).cpf is None
+        assert db.get(MembrosFamilia, 1).cpf == "529.982.247-25"
+        assert db.get(MembrosFamilia, 1).nome_completo == "Familiar Ficticio"
+        db.add(DocumentosEnviados(
+            id=2, inscricao_id=2, solicitado_id=1, membro_id=1, status_processamento="PROCESSANDO_IA",
+            criado_em=datetime(2026, 10, 5, 11),
+        ))
+        db.commit()
+
+    dados["cpf"] = "52998224725"
+    documentos_routes._processar_ia_em_background(2, b"corrigido", "image/jpeg", "CNH", 2, 3, 1)
+    with TestingSession() as db:
+        assert db.get(DocumentosEnviados, 1).status_processamento == "REJEITADO"
+        assert db.get(DocumentosEnviados, 2).status_processamento == "CONCLUIDO"
+        assert db.get(DocumentosEnviados, 2).mensagem_erro is None
+        assert db.query(AnalisesOcr).filter_by(documento_id=1).one().status_auditoria == "REJEITADO"
+        assert db.query(AnalisesOcr).filter_by(documento_id=2).one().status_auditoria == "EXTRAIDO"
+        assert db.get(Inscricoes, 2).status_funil == StatusJornada.KYC_PENDENTE
+        assert db.get(Usuarios, 3).nome_completo == "Candidato (Teste)"
+        assert db.get(Usuarios, 3).cpf is None
+        assert db.get(MembrosFamilia, 1).cpf == "529.982.247-25"
+        assert db.get(MembrosFamilia, 1).nome_completo == "Familiar Ficticio"

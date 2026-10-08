@@ -12,7 +12,106 @@ def candidato():
 
 @pytest.fixture
 def membro_mae():
-    return SimpleNamespace(id=1, nome_completo="Jocelina da Silva", parentesco="Mãe")
+    return SimpleNamespace(id=1, nome_completo="Jocelina da Silva", cpf="444.555.666-77", parentesco="Mãe")
+
+
+def _dados_identidade_familiar(categoria, nome="Jocelina da Silva", cpf="44455566677"):
+    dados = {"nome": nome, "cpf": cpf, "legibilidade": 95, "documento_integro": True}
+    if categoria == "RG":
+        dados.update(lado_documento="frente", data_nascimento="01/01/1970", nome_pai="Pai", nome_mae="Mae")
+    elif categoria == "RG_VERSO":
+        dados.update(lado_documento="verso", numero_rg="1234567")
+    else:
+        dados["numero_cnh"] = "12345678901"
+    return dados
+
+
+@pytest.mark.parametrize("categoria,nome", [
+    (categoria, nome)
+    for categoria in ("RG", "RG_VERSO", "CNH")
+    for nome in ("Jocelina da Silva", "Maria da Costa")
+] + [("RG_VERSO", None)])
+def test_rejeita_cpf_divergente_do_familiar_mesmo_com_nome_compativel(candidato, membro_mae, categoria, nome):
+    valido, motivo, nivel, feedback = validar_documento_no_upload(
+        categoria, _dados_identidade_familiar(categoria, nome, "99988877766"),
+        candidato, membro_mae, [membro_mae],
+    )
+    assert valido is False
+    assert nivel == "erro"
+    assert "CPF do documento não confere com o CPF do familiar cadastrado" in motivo
+    assert feedback == motivo
+    assert "99988877766" not in feedback
+    assert membro_mae.cpf not in feedback
+
+
+@pytest.mark.parametrize("categoria", ["RG", "RG_VERSO", "CNH"])
+@pytest.mark.parametrize("cpf_doc,cpf_membro", [
+    ("44455566677", "444.555.666-77"),
+    ("444.555.666-77", "44455566677"),
+])
+def test_cpf_formatado_do_familiar_confere(candidato, membro_mae, categoria, cpf_doc, cpf_membro):
+    membro_mae.cpf = cpf_membro
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        categoria, _dados_identidade_familiar(categoria, cpf=cpf_doc),
+        candidato, membro_mae, [membro_mae],
+    )
+    assert valido is True
+    assert motivo is None
+    assert nivel == "sucesso"
+
+
+@pytest.mark.parametrize("categoria", ["RG", "RG_VERSO", "CNH"])
+@pytest.mark.parametrize("cpf_doc,cpf_membro", [
+    (None, "444.555.666-77"),
+    ("44455566677", None),
+    (None, None),
+])
+def test_ausencia_de_cpf_preserva_validacao_existente(candidato, membro_mae, categoria, cpf_doc, cpf_membro):
+    membro_mae.cpf = cpf_membro
+    dados = _dados_identidade_familiar(categoria, cpf=cpf_doc)
+    if categoria == "RG" and cpf_doc is None:
+        dados.pop("cpf", None)  # A frente do RG normalmente não traz CPF.
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        categoria, dados, candidato, membro_mae, [membro_mae],
+    )
+    assert valido is True
+    assert motivo is None
+    assert nivel == ("aviso" if categoria == "RG_VERSO" and cpf_doc is None else "sucesso")
+
+
+def test_familiar_sem_atributo_cpf_preserva_validacao(candidato):
+    membro = SimpleNamespace(nome_completo="Jocelina da Silva")
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        "CNH", _dados_identidade_familiar("CNH"), candidato, membro, [membro],
+    )
+    assert (valido, motivo, nivel) == (True, None, "sucesso")
+
+
+@pytest.mark.parametrize("nome,cpf", [
+    ("Jocelina da Silva", "12345678900"),
+    ("Gabriel Mendes", "99988877766"),
+])
+def test_titular_tem_prioridade_sobre_cpf_divergente_do_familiar(candidato, membro_mae, nome, cpf):
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        "CNH", _dados_identidade_familiar("CNH", nome, cpf), candidato, membro_mae, [membro_mae],
+    )
+    assert valido is False
+    assert nivel == "erro"
+    assert "candidato titular" in motivo
+
+
+@pytest.mark.parametrize("categoria,lado_errado,lado_esperado", [
+    ("RG", "verso", "frente"), ("RG_VERSO", "frente", "verso"),
+])
+def test_lado_do_rg_tem_prioridade_sobre_cpf_divergente_do_familiar(candidato, membro_mae, categoria, lado_errado, lado_esperado):
+    dados = _dados_identidade_familiar(categoria, cpf="99988877766")
+    dados["lado_documento"] = lado_errado
+    valido, motivo, nivel, _ = validar_documento_no_upload(
+        categoria, dados, candidato, membro_mae, [membro_mae],
+    )
+    assert valido is False
+    assert nivel == "erro"
+    assert f"exige o lado {lado_esperado}" in motivo
 
 
 @pytest.mark.parametrize("nome,cpf", [
@@ -95,7 +194,7 @@ def test_rejeita_documento_de_terceiro_estranho_no_slot_do_membro(candidato, mem
     """Garante que um documento com nome aleatório não seja aceito para a mãe."""
     dados_terceiro = {
         "nome": "Carlos Alberto Pereira",
-        "cpf": "99988877766",
+        "cpf": None,
         "legibilidade": 90,
         "documento_integro": True,
     }
