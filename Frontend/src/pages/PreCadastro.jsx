@@ -89,7 +89,7 @@ export default function PreCadastro({ onLogout }) {
             >
               <ArrowLeft size={14} /> Voltar
             </button>
-            <p className="auth-wordmark" style={{ margin: 0, fontWeight: 800, color: "#10b981" }}>
+            <p className="auth-wordmark" style={{ margin: 0, fontWeight: 800, color: "var(--accent)" }}>
               ValidaDoc
             </p>
           </div>
@@ -99,7 +99,7 @@ export default function PreCadastro({ onLogout }) {
               style={{
                 width: "36px", height: "36px", borderRadius: "10px",
                 background: "#ecfdf5", display: "flex", alignItems: "center",
-                justifyContent: "center", color: "#10b981", flexShrink: 0,
+                justifyContent: "center", color: "var(--accent)", flexShrink: 0,
               }}
             >
               <UserPlus size={18} />
@@ -190,7 +190,7 @@ export default function PreCadastro({ onLogout }) {
             <button
               className="auth-submit"
               style={{
-                background: carregando ? "#6ee7b7" : "#10b981",
+                background: carregando ? "var(--accent-border)" : "var(--accent)",
                 color: "#fff", border: "none", borderRadius: "12px",
                 padding: "14px", fontWeight: "bold", cursor: carregando ? "not-allowed" : "pointer",
               }}
@@ -205,7 +205,7 @@ export default function PreCadastro({ onLogout }) {
         {/* Coluna informativa */}
         <aside className="auth-info-col">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-            <ShieldCheck size={22} style={{ color: "#10b981" }} />
+            <ShieldCheck size={22} style={{ color: "var(--accent)" }} />
             <h2 style={{ margin: 0 }}>Fluxo de pré-cadastro</h2>
           </div>
           <p style={{ marginBottom: "20px" }}>
@@ -224,7 +224,7 @@ export default function PreCadastro({ onLogout }) {
                 <span
                   style={{
                     width: "24px", height: "24px", borderRadius: "50%",
-                    background: "rgba(16,185,129,0.15)", color: "#10b981",
+                    background: "rgba(16,185,129,0.15)", color: "var(--accent)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: "12px", fontWeight: "700", flexShrink: 0, marginTop: "1px",
                   }}

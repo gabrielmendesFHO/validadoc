@@ -161,6 +161,7 @@ export default function Familia({ onLogout }) {
     <main className="candidate-page">
       <CandidateTopbar title="Grupo Familiar" onLogout={onLogout} />
       <section
+      className="family-content"
       style={{
         padding: "32px 16px",
         maxWidth: "680px",
@@ -179,7 +180,7 @@ export default function Familia({ onLogout }) {
         }}
       >
         {/* Topo / Cabeçalho */}
-        <div
+        <div className="family-card-header"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -195,11 +196,11 @@ export default function Familia({ onLogout }) {
                   width: "32px",
                   height: "32px",
                   borderRadius: "8px",
-                  background: "#e0e7ff",
+                  background: "var(--accent-bg)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  color: "#4f46e5",
+                  color: "var(--accent)",
                 }}
               >
                 <Users size={18} />
@@ -254,7 +255,7 @@ export default function Familia({ onLogout }) {
           onSubmit={salvarMembro}
           style={{
             background: "#f9fafb",
-            border: membroEditando ? "2px solid #6366f1" : "1px solid #e5e7eb",
+            border: membroEditando ? "2px solid var(--accent)" : "1px solid #e5e7eb",
             borderRadius: "12px",
             padding: "20px",
             marginBottom: "28px",
@@ -277,8 +278,8 @@ export default function Familia({ onLogout }) {
               <span
                 style={{
                   fontSize: "12px",
-                  background: "#e0e7ff",
-                  color: "#4338ca",
+                  background: "var(--accent-bg)",
+                  color: "var(--accent)",
                   padding: "3px 8px",
                   borderRadius: "99px",
                   fontWeight: "600",
@@ -307,9 +308,9 @@ export default function Familia({ onLogout }) {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "7px",
-                  background: leituraDoc.carregando ? "#e0e7ff" : "#eef2ff",
-                  color: "#4338ca",
-                  border: "1px solid #c7d2fe",
+                  background: "var(--accent-bg)",
+                  color: "var(--accent)",
+                  border: "1px solid var(--accent-border)",
                   borderRadius: "8px",
                   padding: "9px 16px",
                   fontSize: "13px",
@@ -321,7 +322,7 @@ export default function Familia({ onLogout }) {
               >
                 {leituraDoc.carregando ? (
                   <>
-                    <span style={{ display: "inline-block", width: "14px", height: "14px", border: "2px solid #6366f1", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                    <span style={{ display: "inline-block", width: "14px", height: "14px", border: "2px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                     Lendo documento com IA...
                   </>
                 ) : (
@@ -401,7 +402,7 @@ export default function Familia({ onLogout }) {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
                 gap: "12px",
                 width: "100%",
                 boxSizing: "border-box",
@@ -496,7 +497,7 @@ export default function Familia({ onLogout }) {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: salvando ? "#a5b4fc" : "#6366f1",
+                background: salvando ? "var(--accent-border)" : "var(--accent)",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: "8px",
@@ -566,16 +567,17 @@ export default function Familia({ onLogout }) {
 
                 return (
                   <div
+                    className="family-member"
                     key={membro.id}
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
                       gap: "12px",
-                      border: estaEditandoEste ? "2px solid #6366f1" : "1px solid #e5e7eb",
+                      border: estaEditandoEste ? "2px solid var(--accent)" : "1px solid #e5e7eb",
                       borderRadius: "10px",
                       padding: "14px 16px",
-                      background: estaEditandoEste ? "#f5f3ff" : "#ffffff",
+                      background: estaEditandoEste ? "var(--accent-bg)" : "#ffffff",
                       boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                     }}
                   >
@@ -690,7 +692,7 @@ export default function Familia({ onLogout }) {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
-                background: "#10b981",
+                background: "var(--accent)",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: "8px",

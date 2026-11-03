@@ -1,12 +1,12 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, FileText, FileUp, Loader2, RefreshCw, Search, UserPlus, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import api from "../api/client";
 import "./Dashboard.css";
 import { AnalystLayout, CandidateTopbar } from "../components/PortalLayouts";
 
-function Badge({ resultado }) { const classe = ["ENVIADO", "Aprovado", "Acessou", "Ativo", "Sem alertas"].includes(resultado) ? "status-approved" : ["REJEITADO", "Erro IA", "Ausente", "Não acessou"].includes(resultado) ? "status-rejected" : resultado === "PROCESSANDO" ? "status-processing" : "status-warning"; return <span className={`status-badge ${classe}`}>{resultado === "ENVIADO" ? "Enviado" : resultado}</span>; }
+function Badge({ resultado }) { const classe = ["ENVIADO", "Aprovado", "Acessou", "Ativo"].includes(resultado) ? "status-approved" : ["REJEITADO", "Erro IA"].includes(resultado) ? "status-rejected" : ["Sem alertas", "Não acessou"].includes(resultado) ? "status-neutral" : resultado === "PROCESSANDO" ? "status-processing" : "status-warning"; return <span className={`status-badge ${classe}`}>{resultado === "ENVIADO" ? "Enviado" : resultado}</span>; }
 
 const STATUS_LABELS = {
   PRE_CADASTRADO: "Pré-cadastro",
@@ -20,18 +20,22 @@ const STATUS_LABELS = {
 };
 
 const STATUS_COLORS = {
-  PRE_CADASTRADO: "#64748b",
-  KYC_PENDENTE: "#2563eb",
-  KYC_VALIDADO: "#0891b2",
-  FAMILIA_PENDENTE: "#7c3aed",
-  DOCS_PENDENTES: "#d97706",
-  PRONTO_AUDITORIA: "#e11d48",
-  CONCLUIDO: "#16803c",
-  ABANDONO: "#991b1b",
+  PRE_CADASTRADO: "#66776e",
+  KYC_PENDENTE: "#b88935",
+  KYC_VALIDADO: "#56826a",
+  FAMILIA_PENDENTE: "#7e8e84",
+  DOCS_PENDENTES: "#ad8030",
+  PRONTO_AUDITORIA: "#3e8060",
+  CONCLUIDO: "#155c3e",
+  ABANDONO: "#b54a43",
 };
 
 function KpiCard({ icon: Icon, label, value, detail, tone = "green", onClick }) {
   return <button className={`bi-kpi bi-kpi-${tone}`} type="button" onClick={onClick}><span className="bi-kpi-icon"><Icon size={20}/></span><span className="bi-kpi-copy"><small>{label}</small><strong>{value ?? "—"}</strong><em>{detail}</em></span></button>;
+}
+
+function formatarInscricoes(quantidade) {
+  return `${quantidade} ${Number(quantidade) === 1 ? "inscrição" : "inscrições"}`;
 }
 
 function DashboardCandidato({ usuario, onLogout }) {
@@ -85,26 +89,68 @@ function DashboardEquipe({ usuario, onLogout }) {
 
   const dadosFunil = useMemo(() => Object.entries(metricas?.por_status || {}).map(([status, quantidade]) => ({ status, etapa: STATUS_LABELS[status] || status, quantidade, fill: STATUS_COLORS[status] || "#64748b" })), [metricas]);
   const dadosRosca = useMemo(() => dadosFunil.filter((item) => item.quantidade > 0), [dadosFunil]);
-  const taxaConclusao = metricas?.total ? Math.round((metricas.concluidas / metricas.total) * 100) : 0;
+  const maximoEtapa = Math.max(0, ...dadosRosca.map((item) => item.quantidade));
+  const ticksEtapas = maximoEtapa <= 5 ? Array.from({ length: maximoEtapa + 1 }, (_, indice) => indice) : undefined;
+  const taxaConclusao = metricas?.total > 0 ? Math.round((metricas.concluidas / metricas.total) * 100) : null;
+  const distribuicaoVazia = !metricas
+    ? carregando ? "Carregando distribuição..." : "Distribuição indisponível."
+    : metricas.total === 0 ? "Nenhuma inscrição para exibir." : "Distribuição indisponível.";
+  const formatarComposicao = (quantidade, etapa) => {
+    const participacao = metricas?.total > 0
+      ? `${((Number(quantidade) / metricas.total) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% do total`
+      : null;
+    return [`${formatarInscricoes(quantidade)}${participacao ? ` · ${participacao}` : ""}`, etapa];
+  };
 
   return <AnalystLayout onLogout={onLogout}><main className="dash-shell bi-shell"><section className="dash-card bi-card">
-    <div className="dash-heading bi-heading"><div><p className="eyebrow">INTELIGÊNCIA OPERACIONAL</p><h1>Visão geral do processo seletivo</h1><p className="muted">Indicadores consolidados para acompanhar a jornada dos candidatos.</p></div><div className="bi-heading-actions"><span className="bi-updated"><Clock3 size={14}/> {atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Carregando dados"}</span><button className="secondary-button" onClick={carregar} disabled={carregando}><RefreshCw className={carregando ? "spin" : ""} size={16}/> Atualizar</button>{usuario?.perfil === "ADMIN" && <button className="primary-button" onClick={() => navigate("/pre-cadastro")}><UserPlus size={16}/> Importar candidatos</button>}</div></div>
+    <div className="dash-heading bi-heading"><div><p className="eyebrow">VISÃO DA OPERAÇÃO</p><h1>Visão geral do processo seletivo</h1><p className="muted">Acompanhe inscrições, pendências e a fila de auditoria.</p></div><div className="bi-heading-actions"><span className="bi-updated"><Clock3 size={14}/> {atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : carregando ? "Carregando dados" : "Sem atualização"}</span><button className="secondary-button" onClick={carregar} disabled={carregando}><RefreshCw className={carregando ? "spin" : ""} size={16}/> Atualizar</button>{usuario?.perfil === "ADMIN" && <button className="primary-button" onClick={() => navigate("/pre-cadastro")}><UserPlus size={16}/> Importar candidatos</button>}</div></div>
 
     {erro && <div className="alert error-alert">{erro}</div>}
 
     <div className="bi-kpi-grid">
-      <KpiCard icon={UsersRound} label="Inscrições" value={metricas?.total} detail="Total no processo" tone="blue" onClick={() => setStatusFiltro("")}/>
+      <KpiCard icon={UsersRound} label="Inscrições" value={metricas?.total} detail="Total no processo" tone="neutral" onClick={() => setStatusFiltro("")}/>
       <KpiCard icon={AlertTriangle} label="Com dificuldade" value={metricas?.com_dificuldade} detail="Precisam de atenção" tone="amber" onClick={() => navigate("/fila-auditoria")}/>
-      <KpiCard icon={FileText} label="Para auditoria" value={metricas?.prontas_auditoria} detail="Aguardando parecer" tone="rose" onClick={() => setStatusFiltro("PRONTO_AUDITORIA")}/>
-      <KpiCard icon={CheckCircle2} label="Concluídas" value={metricas?.concluidas} detail={`${taxaConclusao}% de conclusão`} tone="green" onClick={() => setStatusFiltro("CONCLUIDO")}/>
+      <KpiCard icon={FileText} label="Para auditoria" value={metricas?.prontas_auditoria} detail="Aguardando parecer" tone="green" onClick={() => setStatusFiltro("PRONTO_AUDITORIA")}/>
+      <KpiCard icon={CheckCircle2} label="Concluídas" value={metricas?.concluidas} detail={taxaConclusao === null ? "Taxa ainda indisponível" : `${taxaConclusao}% de conclusão`} tone="green" onClick={() => setStatusFiltro("CONCLUIDO")}/>
     </div>
 
     <div className="bi-chart-grid">
-      <article className="bi-panel bi-panel-wide"><header><div><p className="eyebrow">FUNIL</p><h2>Distribuição por etapa</h2></div><span>{metricas?.total || 0} inscrições</span></header><div className="bi-chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={dadosRosca} layout="vertical" margin={{ top: 4, right: 24, left: 12, bottom: 4 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9eeeb"/><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="etapa" width={128} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#526158" }}/><Tooltip cursor={{ fill: "#f3f7f4" }} formatter={(valor) => [`${valor} inscrição(ões)`, "Quantidade"]}/><Bar dataKey="quantidade" radius={[0, 6, 6, 0]}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Bar></BarChart></ResponsiveContainer></div></article>
-      <article className="bi-panel"><header><div><p className="eyebrow">COMPOSIÇÃO</p><h2>Status das inscrições</h2></div></header><div className="bi-donut"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={dadosRosca} dataKey="quantidade" nameKey="etapa" innerRadius={62} outerRadius={90} paddingAngle={3}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Pie><Tooltip formatter={(valor) => [`${valor} inscrição(ões)`, "Quantidade"]}/><Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }}/></PieChart></ResponsiveContainer><div className="bi-donut-center"><strong>{taxaConclusao}%</strong><span>concluído</span></div></div></article>
+      <article className="bi-panel bi-panel-wide">
+        <header><div><p className="eyebrow">ETAPAS DO PROCESSO</p><h2>Distribuição por etapa</h2></div><span>{metricas ? formatarInscricoes(metricas.total) : "— inscrições"}</span></header>
+        <div className="bi-chart">
+          {dadosRosca.length > 0 ? <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={dadosRosca} layout="vertical" margin={{ top: 4, right: 24, left: 12, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9eeeb"/>
+              <XAxis type="number" domain={[0, "dataMax"]} ticks={ticksEtapas} allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#637168" }}/>
+              <YAxis type="category" dataKey="etapa" width={128} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#526158" }}/>
+              <Tooltip cursor={{ fill: "#f3f7f4" }} formatter={(valor) => [formatarInscricoes(valor), "Quantidade"]} wrapperStyle={{ zIndex: 10 }} contentStyle={{ borderColor: "#dce5df", borderRadius: 10, color: "#30483a", fontSize: 12 }}/>
+              <Bar dataKey="quantidade" radius={[0, 6, 6, 0]}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Bar>
+            </BarChart>
+          </ResponsiveContainer> : <div className="bi-chart-empty" role="status">{!metricas && carregando && <Loader2 className="spin" size={20}/>}<span>{distribuicaoVazia}</span></div>}
+        </div>
+      </article>
+      <article className="bi-panel">
+        <header><div><p className="eyebrow">COMPOSIÇÃO</p><h2>Status das inscrições</h2></div></header>
+        <div className="bi-donut">
+          <div className="bi-donut-plot">
+            {dadosRosca.length > 0 ? <>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                  <Pie data={dadosRosca} dataKey="quantidade" nameKey="etapa" cx="50%" cy="50%" innerRadius="64%" outerRadius="88%" paddingAngle={dadosRosca.length > 1 ? 3 : 0}>
+                    {dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}
+                  </Pie>
+                  <Tooltip formatter={formatarComposicao} wrapperStyle={{ zIndex: 10 }} itemStyle={{ color: "#30483a" }} contentStyle={{ borderColor: "#dce5df", borderRadius: 10, color: "#30483a", fontSize: 12, maxWidth: 240, whiteSpace: "normal" }}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="bi-donut-center"><strong>{taxaConclusao === null ? "—" : `${taxaConclusao}%`}</strong><span>de conclusão</span></div>
+            </> : <div className="bi-chart-empty" role="status">{!metricas && carregando ? <Loader2 className="spin" size={20}/> : <span className="bi-empty-value">—</span>}<span>{distribuicaoVazia}</span></div>}
+          </div>
+          {dadosRosca.length > 0 && <ul className="bi-chart-legend" aria-label="Inscrições por etapa">{dadosRosca.map((item) => <li key={item.status}><span className="bi-legend-dot" style={{ backgroundColor: item.fill }} aria-hidden="true"/><span>{item.etapa}</span><strong>{item.quantidade}</strong></li>)}</ul>}
+        </div>
+      </article>
     </div>
 
-    <article className="bi-panel bi-table-panel"><header className="bi-table-header"><div><p className="eyebrow">DRILL-DOWN</p><h2>Acompanhamento por candidato</h2></div><div className="bi-filters"><label><Search size={16}/><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição"/></label><select value={statusFiltro} onChange={(event) => setStatusFiltro(event.target.value)}><option value="">Todas as etapas</option>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div></header><div className="bi-table-wrap"><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Acesso</th><th>Dificuldade</th><th>Atividade</th><th></th></tr></thead><tbody>{carregando && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty"><Loader2 className="spin" size={18}/> Carregando indicadores...</td></tr> : candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Nenhum candidato encontrado para os filtros selecionados.</td></tr> : candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td><span className="bi-stage" style={{ "--stage-color": STATUS_COLORS[item.status_funil] }}>{STATUS_LABELS[item.status_funil] || item.status_funil}</span></td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Analisar</button></td></tr>)}</tbody></table></div></article>
+    <article className="bi-panel bi-table-panel"><header className="bi-table-header"><div><p className="eyebrow">CANDIDATOS</p><h2>Acompanhamento por candidato</h2></div><div className="bi-filters"><label><Search size={16}/><input aria-label="Buscar candidato ou inscrição" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição"/></label><select aria-label="Filtrar por etapa do processo" value={statusFiltro} onChange={(event) => setStatusFiltro(event.target.value)}><option value="">Todas as etapas</option>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div></header><div className="bi-table-wrap"><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Acesso</th><th>Dificuldade</th><th>Atividade</th><th>Ações</th></tr></thead><tbody>{carregando && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty"><Loader2 className="spin" size={18}/> Carregando candidatos...</td></tr> : erro && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Lista indisponível. Tente atualizar o painel.</td></tr> : candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Nenhum candidato encontrado para os filtros selecionados.</td></tr> : candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td><span className="bi-stage" style={{ "--stage-color": STATUS_COLORS[item.status_funil] }}>{STATUS_LABELS[item.status_funil] || item.status_funil}</span></td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" aria-label={`Analisar inscrição de ${item.candidato}`} onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Analisar</button></td></tr>)}</tbody></table></div></article>
   </section></main></AnalystLayout>;
 }
 
