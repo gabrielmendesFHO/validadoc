@@ -15,6 +15,16 @@ import cv2
 import numpy as np
 
 EXTENSOES_IMAGEM = {".jpg", ".jpeg", ".png", ".bmp", ".tiff"}
+LADO_MAXIMO_IA = 2000
+LADO_MAXIMO_DESKEW = 1000
+
+
+def _limitar_resolucao(img: np.ndarray, lado_maximo: int) -> np.ndarray:
+    altura, largura = img.shape[:2]
+    fator = min(1.0, lado_maximo / max(altura, largura))
+    if fator == 1.0:
+        return img
+    return cv2.resize(img, (max(1, round(largura * fator)), max(1, round(altura * fator))), interpolation=cv2.INTER_AREA)
 
 
 def _extensao_suportada(nome_arquivo: str) -> bool:
@@ -23,6 +33,9 @@ def _extensao_suportada(nome_arquivo: str) -> bool:
 
 
 def _calcular_angulo_deskew(gray: np.ndarray) -> float:
+    # np.where + column_stack criam múltiplos arrays int64. Em fotos de
+    # celular, a máscara completa ultrapassava a memória do serviço de 512 MB.
+    gray = _limitar_resolucao(gray, LADO_MAXIMO_DESKEW)
     _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
     coords = np.column_stack(np.where(mask > 0))
     if len(coords) == 0:
@@ -57,6 +70,7 @@ def preparar_para_ia_multimodal(conteudo: bytes, nome_arquivo: str, mime_origina
     if img is None:
         return conteudo, mime_original
 
+    img = _limitar_resolucao(img, LADO_MAXIMO_IA)
     gray_para_angulo = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     angle = _calcular_angulo_deskew(gray_para_angulo)
     if abs(angle) > 0.5:

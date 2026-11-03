@@ -43,6 +43,21 @@ def _normalizar_nome(nome):
     return " ".join(nome.strip().upper().split())
 
 
+def _inconsistencia_titular_holerite(dados, nome_esperado, cpf_esperado):
+    cpf_doc = _normalizar_cpf(dados.get("cpf"))
+    cpf_cadastro = _normalizar_cpf(cpf_esperado)
+    nome_doc = _normalizar_nome(dados.get("nome"))
+    nome_cadastro = _normalizar_nome(nome_esperado)
+    if cpf_doc and cpf_cadastro and cpf_doc != cpf_cadastro:
+        return "CPF do holerite diverge do cadastro da pessoa selecionada."
+    if nome_doc and nome_cadastro and nome_doc != nome_cadastro:
+        return "Nome do holerite diverge do cadastro da pessoa selecionada."
+    if not ((cpf_doc and cpf_cadastro and cpf_doc == cpf_cadastro)
+            or (nome_doc and nome_cadastro and nome_doc == nome_cadastro)):
+        return "Titular do holerite não identificado; confirmar manualmente."
+    return None
+
+
 def _valor_para_float(valor, default=0.0):
     if valor is None or valor == "":
         return default
@@ -102,6 +117,8 @@ def _validar_lote_documentos(documentos, nome_pessoa, cpf_cadastro, inconsistenc
             inconsistencias.append(f"[{nome_pessoa}] {cat}: data de emissão não identificada.")
             continue
         dias = (datetime.now() - data_emissao).days
+        if dias < 0:
+            inconsistencias.append(f"[{nome_pessoa}] {cat}: data de emissão futura; confirmar manualmente.")
         if dias > VALIDADE_MAXIMA_DIAS:
             inconsistencias.append(f"[{nome_pessoa}] {cat}: documento emitido há {dias} dias (limite: {VALIDADE_MAXIMA_DIAS}).")
 
@@ -109,6 +126,9 @@ def _validar_lote_documentos(documentos, nome_pessoa, cpf_cadastro, inconsistenc
     holerite = dados_por_categoria.get("HOLERITE")
     renda_bruta = None
     if holerite:
+        titularidade = _inconsistencia_titular_holerite(holerite, nome_pessoa, cpf_cadastro)
+        if titularidade:
+            inconsistencias.append(f"[{nome_pessoa}] HOLERITE: {titularidade}")
         renda_bruta = _valor_para_float(holerite.get("renda_bruta"), default=None)
         renda_liquida = _valor_para_float(holerite.get("renda_liquida"), default=None)
         if renda_bruta is not None and renda_liquida is not None:

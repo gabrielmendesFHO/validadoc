@@ -26,7 +26,7 @@ def documentos_padrao():
     return [
         criar_documento("RG", {"nome": "Maria da Silva", "cpf": "12345678900", "legibilidade": 95, "documento_integro": True}),
         criar_documento("RESIDENCIA", {"data_emissao": data_recente, "legibilidade": 95, "documento_integro": True}),
-        criar_documento("HOLERITE", {"data_emissao": data_recente, "renda_bruta": 1800, "renda_liquida": 1500, "legibilidade": 95, "documento_integro": True}),
+        criar_documento("HOLERITE", {"nome": "Maria da Silva", "cpf": "12345678900", "data_emissao": data_recente, "renda_bruta": 1800, "renda_liquida": 1500, "legibilidade": 95, "documento_integro": True}),
     ]
 
 

@@ -15,6 +15,7 @@ from .regras_negocio import (
     _normalizar_cpf,
     _normalizar_nome,
     _parse_data_br,
+    _inconsistencia_titular_holerite,
 )
 from .gemini_service import avaliar_possivel_divergencia, lado_documento_invalido
 
@@ -106,6 +107,17 @@ def validar_documento_no_upload(
     # 3. Diagnóstico de qualidade e avisos (o documento é aceito, mas com alertas)
     avisos: List[str] = []
 
+    if categoria_upper == "HOLERITE":
+        pessoa = membro if membro is not None else candidato
+        titularidade = _inconsistencia_titular_holerite(
+            dados_extraidos, getattr(pessoa, "nome_completo", None), getattr(pessoa, "cpf", None),
+        )
+        if titularidade:
+            if "diverge" in titularidade:
+                motivo = f"Documento rejeitado: {titularidade}"
+                return False, motivo, "erro", motivo
+            avisos.append(titularidade)
+
     # Legibilidade
     legibilidade = dados_extraidos.get("legibilidade")
     if legibilidade is not None and isinstance(legibilidade, (int, float)) and legibilidade < LEGIBILIDADE_MINIMA:
@@ -125,6 +137,8 @@ def validar_documento_no_upload(
         data_emissao = _parse_data_br(data_str)
         if data_emissao:
             dias = (datetime.now() - data_emissao).days
+            if dias < 0:
+                avisos.append("Comprovante com data de emissão futura. Confirme a data com o analista.")
             if dias > VALIDADE_MAXIMA_DIAS:
                 avisos.append(f"Comprovante emitido há {dias} dias (o limite aceito pelo processo seletivo é de até {VALIDADE_MAXIMA_DIAS} dias).")
         elif not data_str:
