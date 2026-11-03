@@ -126,6 +126,8 @@ def _validar_lote_documentos(documentos, nome_pessoa, cpf_cadastro, inconsistenc
     holerite = dados_por_categoria.get("HOLERITE")
     renda_bruta = None
     if holerite:
+        if holerite.get("cpf_nao_confirmado"):
+            inconsistencias.append(f"[{nome_pessoa}] HOLERITE: CPF não confirmado na leitura; confirmar titularidade manualmente.")
         titularidade = _inconsistencia_titular_holerite(holerite, nome_pessoa, cpf_cadastro)
         if titularidade:
             inconsistencias.append(f"[{nome_pessoa}] HOLERITE: {titularidade}")

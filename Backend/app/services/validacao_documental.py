@@ -108,6 +108,8 @@ def validar_documento_no_upload(
     avisos: List[str] = []
 
     if categoria_upper == "HOLERITE":
+        if dados_extraidos.get("cpf_nao_confirmado"):
+            avisos.append("CPF do holerite não confirmado na leitura. O analista deve conferir a titularidade.")
         pessoa = membro if membro is not None else candidato
         titularidade = _inconsistencia_titular_holerite(
             dados_extraidos, getattr(pessoa, "nome_completo", None), getattr(pessoa, "cpf", None),

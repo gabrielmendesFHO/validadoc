@@ -322,6 +322,15 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
                 ):
                     raise ValueError("A IA não retornou campos documentais utilizáveis.")
                 if dados.get("cpf") and not cpf_extraido_valido(dados["cpf"]):
+                    if categoria.upper() == "HOLERITE" and any(
+                        dados.get(campo) not in (None, "", [])
+                        for campo in ("nome", "renda_bruta", "renda_liquida")
+                    ):
+                        # Holerites podem trazer apenas RG/PIS. Não armazenar
+                        # esses números como CPF nem descartar a renda legível.
+                        filtrados = _filtrar_campos_resposta(dados, config_extracao["schema"])
+                        filtrados.update(cpf=None, cpf_nao_confirmado=True)
+                        return filtrados
                     raise CpfExtractionError("CPF extraído inválido.")
                 return _filtrar_campos_resposta(dados, config_extracao["schema"])
             except Exception as exc:
