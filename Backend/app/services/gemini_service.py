@@ -308,6 +308,19 @@ def extrair_dados_documento(conteudo: bytes, mime_type: str, categoria: str) -> 
                     ),
                 )
                 dados = _parse_json_response(response.text)
+                if not isinstance(dados, dict):
+                    raise ValueError("Resposta documental deve ser um objeto JSON.")
+                campos_documentais = _CAMPOS_CHAVE_POR_CATEGORIA.get(
+                    categoria.upper(), ("tipo_documento_identificado", "dados_relevantes"),
+                )
+                lado_contrario_identificado = (
+                    dados.get("lado_documento") in ("frente", "verso")
+                    and lado_documento_invalido(dados, categoria)
+                )
+                if not lado_contrario_identificado and not any(
+                    dados.get(campo) not in (None, "", []) for campo in campos_documentais
+                ):
+                    raise ValueError("A IA não retornou campos documentais utilizáveis.")
                 if dados.get("cpf") and not cpf_extraido_valido(dados["cpf"]):
                     raise CpfExtractionError("CPF extraído inválido.")
                 return _filtrar_campos_resposta(dados, config_extracao["schema"])
