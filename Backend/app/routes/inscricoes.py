@@ -21,6 +21,7 @@ from ..services.regras_negocio import auditar_inscricao
 from ..services.image_processing import preparar_para_ia_multimodal
 from ..services.gemini_service import GeminiExtractionError, extrair_dados_documento
 from ..services.historico_documental import ultimos_documentos as _ultimos_documentos
+from ..services.indicadores_dashboard import STATUS_COM_ERRO, criterio_dificuldade, documentos_vigentes
 
 router = APIRouter(prefix="/inscricoes", tags=["Inscrições"])
 
@@ -199,6 +200,7 @@ def fila_auditoria(
 def dashboard_candidatos(
     busca: str = Query(default="", max_length=100),
     status_funil: StatusJornada | None = None,
+    com_dificuldade: bool | None = None,
     pagina: int = Query(default=1, ge=1),
     por_pagina: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -211,13 +213,16 @@ def dashboard_candidatos(
         consulta = consulta.filter(Inscricoes.id == int(termo) if termo.isdigit() else Usuarios.nome_completo.ilike(f"%{termo}%"))
     if status_funil is not None:
         consulta = consulta.filter(Inscricoes.status_funil == status_funil)
+    if com_dificuldade is not None:
+        criterio = criterio_dificuldade()
+        consulta = consulta.filter(criterio if com_dificuldade else ~criterio)
     total = consulta.count()
-    registros = consulta.order_by(Inscricoes.ultima_atividade.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina).all()
+    registros = consulta.order_by(Inscricoes.ultima_atividade.desc(), Inscricoes.id.desc()).offset((pagina - 1) * por_pagina).limit(por_pagina).all()
     limite_ausencia = datetime.now() - timedelta(days=7)
     itens = []
     for inscricao, candidato in registros:
-        docs = db.query(DocumentosEnviados).filter_by(inscricao_id=inscricao.id).all()
-        erros = sum(documento.status_processamento in {"REJEITADO", "ERRO_EXTRACAO"} for documento in docs)
+        docs = documentos_vigentes(db, inscricao.id)
+        erros = sum(documento.status_processamento in STATUS_COM_ERRO for documento in docs)
         dificuldade = inscricao.alertas_dificuldade > 0 or erros > 0
         acessou = inscricao.ultimo_acesso is not None
         ausente = not acessou or inscricao.ultimo_acesso < limite_ausencia

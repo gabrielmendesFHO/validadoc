@@ -1,10 +1,11 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, FileText, FileUp, Loader2, RefreshCw, Search, UserPlus, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import api from "../api/client";
 import "./Dashboard.css";
 import { AnalystLayout, CandidateTopbar } from "../components/PortalLayouts";
+import DashboardDrawer from "../components/DashboardDrawer";
 
 function Badge({ resultado }) { const classe = ["ENVIADO", "Aprovado", "Acessou", "Ativo"].includes(resultado) ? "status-approved" : ["REJEITADO", "Erro IA"].includes(resultado) ? "status-rejected" : ["Sem alertas", "Não acessou"].includes(resultado) ? "status-neutral" : resultado === "PROCESSANDO" ? "status-processing" : "status-warning"; return <span className={`status-badge ${classe}`}>{resultado === "ENVIADO" ? "Enviado" : resultado}</span>; }
 
@@ -30,8 +31,8 @@ const STATUS_COLORS = {
   ABANDONO: "#b54a43",
 };
 
-function KpiCard({ icon: Icon, label, value, detail, tone = "green", onClick }) {
-  return <button className={`bi-kpi bi-kpi-${tone}`} type="button" onClick={onClick}><span className="bi-kpi-icon"><Icon size={20}/></span><span className="bi-kpi-copy"><small>{label}</small><strong>{value ?? "—"}</strong><em>{detail}</em></span></button>;
+function KpiCard({ icon: Icon, label, value, detail, tone = "green", onClick, resumo }) {
+  return <button className={`bi-kpi bi-kpi-${tone}`} type="button" data-resumo={resumo} onClick={onClick}><span className="bi-kpi-icon"><Icon size={20}/></span><span className="bi-kpi-copy"><small>{label}</small><strong>{value ?? "—"}</strong><em>{detail}</em></span></button>;
 }
 
 function formatarInscricoes(quantidade) {
@@ -54,11 +55,41 @@ function DashboardCandidato({ usuario, onLogout }) {
     } catch (err) { setErro(err.response?.data?.detail || "Não foi possível concluir o envio."); }
     finally { setConcluindo(false); }
   }
-  return <main className="candidate-page"><CandidateTopbar title="Meus documentos" onLogout={onLogout}/><section className="candidate-dashboard"><header><div><p className="eyebrow">PAINEL DO CANDIDATO</p><h1>Olá, {usuario?.nome_completo?.split(" ")[0] || "candidato"}</h1><p>Veja as pendências e envie documentos sem sair desta página.</p></div></header>{erro && <div className="alert error-alert">{erro}</div>}<h2>Documentos por pessoa</h2><div className="person-cards">{pessoas.map((pessoa) => { const pendentes = pessoa.checklist.flatMap((grupo) => grupo.itens).filter((item) => item.obrigatorio && !["ENVIADO", "ATENCAO"].includes(item.status)).length; const expandido = aberto === pessoa.id; return <article className="person-card" key={pessoa.id}><button className="person-card-head" onClick={() => setAberto(expandido ? "" : pessoa.id)}><span className="person-avatar">{pessoa.nome.charAt(0)}</span><span className="person-info"><strong>{pessoa.nome}</strong><small>{pessoa.subtitulo} · {pendentes ? `${pendentes} pendência${pendentes > 1 ? "s" : ""}` : "Documentação em dia"}</small></span><Badge resultado={pendentes ? "PENDENTE" : "ENVIADO"}/><ChevronDown className={expandido ? "chevron-open" : ""} size={19}/></button>{expandido && <div className="person-documents">{pessoa.checklist.length === 0 ? <p>Nenhum documento configurado para este edital.</p> : pessoa.checklist.flatMap((grupo) => grupo.itens.map((item) => { const chave = `${pessoa.id}-${item.solicitado_id}`; const pronto = ["ENVIADO", "ATENCAO"].includes(item.status); return <div className="person-document" key={chave}><FileText size={19}/><div><strong>{grupo.titulo}{item.rotulo ? ` — ${item.rotulo}` : ""}</strong><small>{item.mensagem_feedback || grupo.descricao || (pronto ? "Documento validado." : "Documento pendente.")}</small></div><Badge resultado={item.status}/><label className="inline-upload">{enviando === chave ? <Loader2 className="spin" size={16}/> : <FileUp size={16}/>}<span>{pronto ? "Substituir" : "Enviar"}</span><input type="file" accept=".pdf,image/png,image/jpeg" disabled={enviando === chave} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; enviarArquivo(file, pessoa, item); }}/></label></div>; }))}</div>}</article>; })}</div><button className="brand-button" disabled={!inscricaoId || concluindo || Boolean(enviando)} onClick={concluirEnvio}>{concluindo && <Loader2 className="spin" size={17}/>} Concluir envio de documentos</button></section></main>;
+  return <main className="candidate-page"><CandidateTopbar title="Meus documentos" onLogout={onLogout}/><section className="candidate-dashboard"><header><div><p className="eyebrow">PAINEL DO CANDIDATO</p><h1>Olá, {usuario?.nome_completo?.split(" ")[0] || "candidato"}</h1><p>Veja as pendências e envie documentos sem sair desta página.</p></div></header>{erro && <div className="alert error-alert">{erro}</div>}<h2>Documentos por pessoa</h2><div className="person-cards">{pessoas.map((pessoa) => { const pendentes = pessoa.checklist.flatMap((grupo) => grupo.itens).filter((item) => item.obrigatorio && !["ENVIADO", "ATENCAO"].includes(item.status)).length; const expandido = aberto === pessoa.id; return <article className="person-card" key={pessoa.id}><button className="person-card-head" onClick={() => setAberto(expandido ? "" : pessoa.id)}><span className="person-avatar">{pessoa.nome.charAt(0)}</span><span className="person-info"><strong>{pessoa.nome}</strong><small>{pessoa.subtitulo} · {pendentes ? `${pendentes} pendência${pendentes > 1 ? "s" : ""}` : "Documentação em dia"}</small></span><Badge resultado={pendentes ? "PENDENTE" : "ENVIADO"}/><ChevronDown className={expandido ? "chevron-open" : ""} size={19}/></button>{expandido && <div className="person-documents">{pessoa.checklist.length === 0 ? <p>Nenhum documento configurado para este edital.</p> : pessoa.checklist.flatMap((grupo) => grupo.itens.map((item) => { const chave = `${pessoa.id}-${item.solicitado_id}`; const pronto = ["ENVIADO", "ATENCAO"].includes(item.status); return <div className="person-document" key={chave}><FileText size={19}/><div><strong>{grupo.titulo}{item.rotulo ? ` — ${item.rotulo}` : ""}</strong><small>{item.mensagem_feedback || grupo.descricao || (pronto ? "Documento validado." : "Documento pendente.")}</small></div><Badge resultado={item.status}/><label className="inline-upload">{enviando === chave ? <Loader2 className="spin" size={16}/> : <FileUp size={16}/>}<span>{pronto ? "Substituir" : "Enviar"}</span><input type="file" accept=".pdf,image/png,image/jpeg" disabled={enviando === chave} onChange={(event) => enviarArquivo(event.target.files?.[0], pessoa, item)}/></label></div>; }))}</div>}</article>; })}</div><button className="brand-button" disabled={!inscricaoId || concluindo || Boolean(enviando)} onClick={concluirEnvio}>{concluindo && <Loader2 className="spin" size={17}/>} Concluir envio de documentos</button></section></main>;
 }
 
 function DashboardEquipe({ usuario, onLogout }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filtroResumo = searchParams.get("resumo");
+  const selecaoResumo = filtroResumo === "todas"
+    ? { titulo: "Inscrições", descricao: "Todas as inscrições do processo, com pessoas e documentos.", dificuldade: false }
+    : filtroResumo === "dificuldade"
+      ? { titulo: "Com dificuldade", descricao: "Inscrições com alertas registrados, documentos recusados ou falhas na leitura.", dificuldade: true }
+      : Object.hasOwn(STATUS_LABELS, filtroResumo || "")
+        ? { titulo: STATUS_LABELS[filtroResumo], descricao: "Inscrições nesta etapa do processo seletivo.", status: filtroResumo, dificuldade: false }
+        : null;
+
+  function abrirResumo(filtro, inscricaoId) {
+    if (!["todas", "dificuldade"].includes(filtro) && !Object.hasOwn(STATUS_LABELS, filtro || "")) return;
+    setSearchParams(anteriores => {
+      const proximos = new URLSearchParams(anteriores);
+      for (const campo of ["resumo_busca", "resumo_pagina", "inscricao"]) proximos.delete(campo);
+      proximos.set("resumo", filtro);
+      if (inscricaoId) {
+        proximos.set("inscricao", String(inscricaoId));
+      }
+      return proximos;
+    }, { state: { resumoBusca: inscricaoId ? String(inscricaoId) : "" } });
+  }
+
+  function fecharResumo() {
+    setSearchParams(anteriores => {
+      const proximos = new URLSearchParams(anteriores);
+      for (const campo of ["resumo", "resumo_busca", "resumo_pagina", "inscricao"]) proximos.delete(campo);
+      return proximos;
+    }, { replace: true, state: null });
+  }
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState("");
   const [candidatos, setCandidatos] = useState([]);
@@ -108,10 +139,10 @@ function DashboardEquipe({ usuario, onLogout }) {
     {erro && <div className="alert error-alert">{erro}</div>}
 
     <div className="bi-kpi-grid">
-      <KpiCard icon={UsersRound} label="Inscrições" value={metricas?.total} detail="Total no processo" tone="neutral" onClick={() => setStatusFiltro("")}/>
-      <KpiCard icon={AlertTriangle} label="Com dificuldade" value={metricas?.com_dificuldade} detail="Precisam de atenção" tone="amber" onClick={() => navigate("/fila-auditoria")}/>
-      <KpiCard icon={FileText} label="Para auditoria" value={metricas?.prontas_auditoria} detail="Aguardando parecer" tone="green" onClick={() => setStatusFiltro("PRONTO_AUDITORIA")}/>
-      <KpiCard icon={CheckCircle2} label="Concluídas" value={metricas?.concluidas} detail={taxaConclusao === null ? "Taxa ainda indisponível" : `${taxaConclusao}% de conclusão`} tone="green" onClick={() => setStatusFiltro("CONCLUIDO")}/>
+      <KpiCard icon={UsersRound} label="Inscrições" value={metricas?.total} detail="Ver todas as inscrições" tone="neutral" resumo="todas" onClick={() => abrirResumo("todas")}/>
+      <KpiCard icon={AlertTriangle} label="Com dificuldade" value={metricas?.com_dificuldade} detail="Ver pessoas e dificuldades" tone="amber" resumo="dificuldade" onClick={() => abrirResumo("dificuldade")}/>
+      <KpiCard icon={FileText} label="Para auditoria" value={metricas?.prontas_auditoria} detail="Ver inscrições para análise" tone="green" resumo="PRONTO_AUDITORIA" onClick={() => abrirResumo("PRONTO_AUDITORIA")}/>
+      <KpiCard icon={CheckCircle2} label="Concluídas" value={metricas?.concluidas} detail={taxaConclusao === null ? "Ver inscrições concluídas" : `${taxaConclusao}% de conclusão · Ver inscrições`} tone="green" resumo="CONCLUIDO" onClick={() => abrirResumo("CONCLUIDO")}/>
     </div>
 
     <div className="bi-chart-grid">
@@ -124,7 +155,7 @@ function DashboardEquipe({ usuario, onLogout }) {
               <XAxis type="number" domain={[0, "dataMax"]} ticks={ticksEtapas} allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#637168" }}/>
               <YAxis type="category" dataKey="etapa" width={128} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#526158" }}/>
               <Tooltip cursor={{ fill: "#f3f7f4" }} formatter={(valor) => [formatarInscricoes(valor), "Quantidade"]} wrapperStyle={{ zIndex: 10 }} contentStyle={{ borderColor: "#dce5df", borderRadius: 10, color: "#30483a", fontSize: 12 }}/>
-              <Bar dataKey="quantidade" radius={[0, 6, 6, 0]}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Bar>
+              <Bar dataKey="quantidade" radius={[0, 6, 6, 0]} cursor="pointer" onClick={item => abrirResumo(item.status || item.payload?.status)}>{dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}</Bar>
             </BarChart>
           </ResponsiveContainer> : <div className="bi-chart-empty" role="status">{!metricas && carregando && <Loader2 className="spin" size={20}/>}<span>{distribuicaoVazia}</span></div>}
         </div>
@@ -136,7 +167,7 @@ function DashboardEquipe({ usuario, onLogout }) {
             {dadosRosca.length > 0 ? <>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                  <Pie data={dadosRosca} dataKey="quantidade" nameKey="etapa" cx="50%" cy="50%" innerRadius="64%" outerRadius="88%" paddingAngle={dadosRosca.length > 1 ? 3 : 0}>
+                  <Pie data={dadosRosca} dataKey="quantidade" nameKey="etapa" cx="50%" cy="50%" innerRadius="64%" outerRadius="88%" paddingAngle={dadosRosca.length > 1 ? 3 : 0} cursor="pointer" onClick={item => abrirResumo(item.status || item.payload?.status)}>
                     {dadosRosca.map((item) => <Cell key={item.status} fill={item.fill}/>)}
                   </Pie>
                   <Tooltip formatter={formatarComposicao} wrapperStyle={{ zIndex: 10 }} itemStyle={{ color: "#30483a" }} contentStyle={{ borderColor: "#dce5df", borderRadius: 10, color: "#30483a", fontSize: 12, maxWidth: 240, whiteSpace: "normal" }}/>
@@ -145,13 +176,13 @@ function DashboardEquipe({ usuario, onLogout }) {
               <div className="bi-donut-center"><strong>{taxaConclusao === null ? "—" : `${taxaConclusao}%`}</strong><span>de conclusão</span></div>
             </> : <div className="bi-chart-empty" role="status">{!metricas && carregando ? <Loader2 className="spin" size={20}/> : <span className="bi-empty-value">—</span>}<span>{distribuicaoVazia}</span></div>}
           </div>
-          {dadosRosca.length > 0 && <ul className="bi-chart-legend" aria-label="Inscrições por etapa">{dadosRosca.map((item) => <li key={item.status}><span className="bi-legend-dot" style={{ backgroundColor: item.fill }} aria-hidden="true"/><span>{item.etapa}</span><strong>{item.quantidade}</strong></li>)}</ul>}
+          {dadosRosca.length > 0 && <ul className="bi-chart-legend" aria-label="Inscrições por etapa">{dadosRosca.map((item) => <li key={item.status}><button type="button" data-resumo={item.status} aria-label={`Ver inscrições em ${item.etapa}`} onClick={() => abrirResumo(item.status)}><span className="bi-legend-dot" style={{ backgroundColor: item.fill }} aria-hidden="true"/><span>{item.etapa}</span><strong>{item.quantidade}</strong></button></li>)}</ul>}
         </div>
       </article>
     </div>
 
-    <article className="bi-panel bi-table-panel"><header className="bi-table-header"><div><p className="eyebrow">CANDIDATOS</p><h2>Acompanhamento por candidato</h2></div><div className="bi-filters"><label><Search size={16}/><input aria-label="Buscar candidato ou inscrição" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição"/></label><select aria-label="Filtrar por etapa do processo" value={statusFiltro} onChange={(event) => setStatusFiltro(event.target.value)}><option value="">Todas as etapas</option>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div></header><div className="bi-table-wrap"><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Acesso</th><th>Dificuldade</th><th>Atividade</th><th>Ações</th></tr></thead><tbody>{carregando && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty"><Loader2 className="spin" size={18}/> Carregando candidatos...</td></tr> : erro && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Lista indisponível. Tente atualizar o painel.</td></tr> : candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Nenhum candidato encontrado para os filtros selecionados.</td></tr> : candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td><span className="bi-stage" style={{ "--stage-color": STATUS_COLORS[item.status_funil] }}>{STATUS_LABELS[item.status_funil] || item.status_funil}</span></td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" aria-label={`Analisar inscrição de ${item.candidato}`} onClick={() => navigate(`/detalhe/${item.inscricao_id}`)}>Analisar</button></td></tr>)}</tbody></table></div></article>
-  </section></main></AnalystLayout>;
+    <article className="bi-panel bi-table-panel"><header className="bi-table-header"><div><p className="eyebrow">CANDIDATOS</p><h2>Acompanhamento por candidato</h2></div><div className="bi-filters"><label><Search size={16}/><input aria-label="Buscar candidato ou inscrição" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar candidato ou inscrição"/></label><select aria-label="Filtrar por etapa do processo" value={statusFiltro} onChange={(event) => setStatusFiltro(event.target.value)}><option value="">Todas as etapas</option>{Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div></header><div className="bi-table-wrap"><table className="history-table candidate-monitor"><thead><tr><th>Candidato</th><th>Etapa</th><th>Acesso</th><th>Dificuldade</th><th>Atividade</th><th>Ações</th></tr></thead><tbody>{carregando && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty"><Loader2 className="spin" size={18}/> Carregando candidatos...</td></tr> : erro && candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Lista indisponível. Tente atualizar o painel.</td></tr> : candidatos.length === 0 ? <tr><td colSpan="6" className="bi-empty">Nenhum candidato encontrado para os filtros selecionados.</td></tr> : candidatos.map((item) => <tr key={item.inscricao_id}><td><strong>{item.candidato}</strong><small>{item.email}</small></td><td><span className="bi-stage" style={{ "--stage-color": STATUS_COLORS[item.status_funil] }}>{STATUS_LABELS[item.status_funil] || item.status_funil}</span></td><td><Badge resultado={item.acessou ? "Acessou" : "Não acessou"}/></td><td><Badge resultado={item.com_dificuldade ? "Atenção" : "Sem alertas"}/></td><td><Badge resultado={item.ausente ? "Ausente" : "Ativo"}/></td><td><button className="row-action" aria-label={`Ver resumo de ${item.candidato}`} onClick={() => abrirResumo("todas", item.inscricao_id)}>Ver resumo</button></td></tr>)}</tbody></table></div></article>
+  </section></main>{selecaoResumo && <DashboardDrawer key={filtroResumo} selecao={selecaoResumo} rotulosStatus={STATUS_LABELS} onClose={fecharResumo}/>}</AnalystLayout>;
 }
 
 export default function Dashboard(props) { return props.usuario?.perfil === "CANDIDATO" ? <DashboardCandidato {...props}/> : <DashboardEquipe {...props}/>; }

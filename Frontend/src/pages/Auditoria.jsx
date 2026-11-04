@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ExternalLink, FileSearch, Loader2, ScanLine, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import api from "../api/client";
 import { AnalystLayout } from "../components/PortalLayouts";
 import "./Auditoria.css";
@@ -28,6 +28,11 @@ function tomStatus(status) {
 export default function Auditoria({ onLogout }) {
   const { inscricaoId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const documentoSelecionado = searchParams.get("documento");
+  const retornoSolicitado = searchParams.get("retorno");
+  const retornoResumo = retornoSolicitado === "/dashboard" || retornoSolicitado?.startsWith("/dashboard?") ? retornoSolicitado : null;
   const [dados, setDados] = useState(null);
   const [documentoAtivo, setDocumentoAtivo] = useState(null);
   const [arquivoUrl, setArquivoUrl] = useState("");
@@ -65,13 +70,15 @@ export default function Auditoria({ onLogout }) {
       .then(({ data }) => {
         if (!ativo) return;
         setDados(data);
-        setDocumentoAtivo(data.documentos[0] || null);
+        setDocumentoAtivo(documentoSelecionado !== null
+          ? data.documentos.find(documento => String(documento.id) === documentoSelecionado) || null
+          : data.documentos[0] || null);
         setJustificativa(data.inscricao.parecer || "");
       })
       .catch((error) => { if (ativo) setErro(error.response?.data?.detail || "Não foi possível carregar a auditoria."); })
       .finally(() => { if (ativo) setCarregando(false); });
     return () => { ativo = false; };
-  }, [inscricaoId]);
+  }, [inscricaoId, documentoSelecionado]);
 
   useEffect(() => {
     if (!documentoAtivo) return undefined;
@@ -104,13 +111,14 @@ export default function Auditoria({ onLogout }) {
   const inconsistencias = dados?.inscricao.inconsistencias || [];
   return <AnalystLayout onLogout={onLogout}>
     <div className="analyst-page audit-page">
-      <button className="back-button" onClick={() => navigate("/fila-auditoria")}><ArrowLeft size={16}/> Voltar para a fila</button>
+      <button className="back-button" onClick={() => navigate(retornoResumo || "/fila-auditoria", { state: retornoResumo ? location.state : null })}><ArrowLeft size={16}/> {retornoResumo ? "Voltar ao resumo" : "Voltar para a fila"}</button>
       <header className="audit-page-header">
         <div><p className="eyebrow">INSCRIÇÃO #{inscricaoId}</p><h1>Auditoria documental</h1><p className="muted">Confira os documentos e os dados antes de emitir o parecer.</p></div>
         {dados && <span className={`audit-badge ${tomStatus(dados.inscricao.status_funil)}`}><span/>{rotuloStatus(dados.inscricao.status_funil)}</span>}
       </header>
       {carregando && <div className="panel loading-state"><Loader2 className="spin" size={18}/> Carregando documentos...</div>}
       {erro && <div className="alert error-alert" role="alert"><AlertTriangle size={18}/> {erro}</div>}
+      {dados && documentoSelecionado !== null && !documentoAtivo && <div className="alert error-alert" role="alert"><AlertTriangle size={18}/><span>Documento solicitado não está disponível nesta inscrição. Selecione outro documento na lista para continuar.</span></div>}
       {dados && <>
         <section className="audit-overview" aria-label="Resumo da inscrição">
           <div className="audit-candidate"><span className="audit-avatar"><ShieldCheck size={23}/></span><div><span>Candidato</span><strong>{dados.candidato.nome_completo || "Nome não informado"}</strong></div></div>

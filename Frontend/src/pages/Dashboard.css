@@ -440,6 +440,9 @@
 .bi-chart-legend { margin: 0; padding: 12px 0 0; list-style: none; border-top: 1px solid #edf1ee; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
 .bi-chart-legend li { display: flex; align-items: center; gap: 7px; min-width: 0; color: #526158; font-size: 12px; line-height: 1.45; }
 .bi-chart-legend li > span:not(.bi-legend-dot) { overflow-wrap: anywhere; }
+.bi-chart-legend li > button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 6px; margin: -5px -6px; border: 0; border-radius: 6px; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.bi-chart-legend li > button:hover { background: #f0f5f1; }
+.bi-chart-legend li > button > span:not(.bi-legend-dot) { overflow-wrap: anywhere; }
 .bi-chart-legend strong { margin-left: auto; color: #30483a; font-variant-numeric: tabular-nums; }
 .bi-legend-dot { flex: 0 0 8px; height: 8px; border-radius: 50%; }
 .bi-chart-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; color: #637168; font-size: 13px; }

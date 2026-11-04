@@ -81,6 +81,101 @@ def test_metricas_agrupam_status_do_funil(client):
     assert dados["com_dificuldade"] == 1
 
 
+@pytest.mark.parametrize("atual,esperados", [("CONCLUIDO", [3]), ("REJEITADO", [2, 3]), ("ERRO_EXTRACAO", [2, 3])])
+@pytest.mark.parametrize("membro_id", [None, 1])
+def test_dashboard_dificuldade_considera_somente_envio_vigente(client, atual, esperados, membro_id):
+    _preparar_reenvio(atual=atual, membro_id=membro_id)
+    metricas = client.get("/dashboard/metricas").json()
+    lista = client.get("/inscricoes/dashboard/candidatos", params={"com_dificuldade": True}).json()
+    assert metricas["com_dificuldade"] == len(esperados)
+    assert lista["total"] == len(esperados)
+    assert sorted(item["inscricao_id"] for item in lista["itens"]) == esperados
+    assert all(item["com_dificuldade"] for item in lista["itens"])
+    fila = client.get("/dashboard/estagnadas").json()
+    assert sorted(item["inscricao_id"] for item in fila["itens"]) == esperados
+
+
+def test_dashboard_filtra_antes_de_paginar_e_combina_busca_etapa(client):
+    _preparar_reenvio(atual="REJEITADO")
+    params = {"com_dificuldade": True, "por_pagina": 1, "pagina": 2, "status_funil": "DOCS_PENDENTES"}
+    resposta = client.get("/inscricoes/dashboard/candidatos", params=params)
+    assert resposta.status_code == 200
+    assert resposta.json()["total"] == 2
+    assert len(resposta.json()["itens"]) == 1
+    params.update(busca="Bruno", pagina=1)
+    dados = client.get("/inscricoes/dashboard/candidatos", params=params).json()
+    assert dados["total"] == 1
+    assert dados["itens"][0]["inscricao_id"] == 2
+    assert dados["itens"][0]["documentos_com_erro"] == 1
+
+
+def test_dashboard_desempata_envio_pelo_id_sem_confundir_titular_e_familiar(client):
+    _preparar_reenvio(atual="CONCLUIDO", membro_id=1)
+    with TestingSession() as db:
+        antigo = db.get(DocumentosEnviados, 1)
+        atual = db.get(DocumentosEnviados, 2)
+        antigo.criado_em = atual.criado_em
+        db.get(DocumentosEnviados, 3).status_processamento = "ERRO_EXTRACAO"
+        db.commit()
+    dados = client.get("/inscricoes/dashboard/candidatos", params={"com_dificuldade": True, "busca": "Bruno"}).json()
+    assert dados["total"] == 1
+    assert dados["itens"][0]["documentos_com_erro"] == 1
+
+
+def test_resumo_identifica_pessoa_recusa_erro_tecnico_e_ausencia(client):
+    _preparar_reenvio(atual="REJEITADO", membro_id=1)
+    with TestingSession() as db:
+        db.get(DocumentosEnviados, 2).mensagem_erro = "Imagem ilegível."
+        db.get(DocumentosEnviados, 3).status_processamento = "ERRO_EXTRACAO"
+        db.get(DocumentosEnviados, 3).mensagem_erro = "Serviço indisponível."
+        db.add(DocumentosSolicitados(id=2, processo_id=1, nome_documento="HOLERITE", obrigatorio=1))
+        db.commit()
+    resposta = client.get("/dashboard/inscricoes/2/resumo")
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    assert dados["candidato"] == "Bruno"
+    assert dados["com_dificuldade"] is True
+    pessoas = {p["nome"]: p for p in dados["pessoas"]}
+    familiar = pessoas["Familiar Ficticio"]["documentos"]
+    assert [(d["id"], d["status"], d["motivo"]) for d in familiar if d["categoria"] == "RG"] == [(2, "REJEITADO", "Imagem ilegível.")]
+    titular = pessoas["Bruno"]["documentos"]
+    assert next(d for d in titular if d["categoria"] == "RG")["status"] == "ERRO_EXTRACAO"
+    assert next(d for d in titular if d["categoria"] == "HOLERITE")["status"] == "PENDENTE"
+    assert all("arquivo_url" not in d for p in dados["pessoas"] for d in p["documentos"])
+
+
+def test_resumo_alerta_sem_documentos_nao_inventa_motivo(client):
+    resposta = client.get("/dashboard/inscricoes/3/resumo")
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    assert dados["alertas_dificuldade"] == 2
+    assert dados["pessoas"][0]["documentos"] == []
+    assert client.get("/dashboard/inscricoes/999/resumo").status_code == 404
+
+
+def test_resumo_preserva_divergencia_da_analise_atual_sem_mudar_kpi(client):
+    _preparar_reenvio(atual="CONCLUIDO")
+    with TestingSession() as db:
+        db.query(AnalisesOcr).filter_by(documento_id=2).update({"criado_em": datetime(2026, 10, 5)})
+        db.add(AnalisesOcr(documento_id=2, status_auditoria="POSSIVEL_DIVERGENCIA", parecer="Renda requer conferência.", criado_em=datetime(2026, 11, 4)))
+        db.commit()
+    resposta = client.get("/dashboard/inscricoes/2/resumo")
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    documento = dados["pessoas"][0]["documentos"][0]
+    assert documento["status"] == "CONCLUIDO"
+    assert documento["status_auditoria"] == "POSSIVEL_DIVERGENCIA"
+    assert documento["motivo"] == "Renda requer conferência."
+    assert dados["com_dificuldade"] is False
+    assert client.get("/dashboard/metricas").json()["com_dificuldade"] == 1
+
+
+def test_consultas_dashboard_negam_candidato(client):
+    app_test.dependency_overrides[get_current_user] = lambda: Usuarios(id=2, perfil="CANDIDATO")
+    for caminho in ["/dashboard/metricas", "/inscricoes/dashboard/candidatos", "/dashboard/inscricoes/2/resumo"]:
+        assert client.get(caminho).status_code == 403
+
+
 def test_estagnadas_retorna_dificuldade_e_pronto_auditoria(client):
     response = client.get("/dashboard/estagnadas")
     assert response.status_code == 200

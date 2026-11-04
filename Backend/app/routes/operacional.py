@@ -20,6 +20,7 @@ from ..models import (
     StatusJornada,
     Usuarios,
 )
+from ..services.indicadores_dashboard import STATUS_COM_ERRO, criterio_dificuldade, documentos_vigentes
 
 router = APIRouter(tags=["Painel operacional"])
 
@@ -53,7 +54,7 @@ def metricas_funil(
         por_status[_valor_status(status_funil)] = quantidade
 
     limite_ausencia = datetime.now() - timedelta(days=7)
-    com_dificuldade = consulta.filter(Inscricoes.alertas_dificuldade > 0).count()
+    com_dificuldade = consulta.filter(criterio_dificuldade()).count()
     sem_acesso = consulta.filter(Inscricoes.ultimo_acesso.is_(None)).count()
     ausentes = consulta.filter(
         or_(Inscricoes.ultimo_acesso.is_(None), Inscricoes.ultimo_acesso < limite_ausencia)
@@ -86,7 +87,7 @@ def listar_estagnadas(
         .join(ProcessosBolsa, Inscricoes.processo_id == ProcessosBolsa.id)
         .filter(
             or_(
-                Inscricoes.alertas_dificuldade > 0,
+                criterio_dificuldade(),
                 Inscricoes.status_funil == StatusJornada.PRONTO_AUDITORIA,
             )
         )
@@ -118,7 +119,9 @@ def listar_estagnadas(
                 "status_funil": _valor_status(inscricao.status_funil),
                 "situacao": (
                     "COM_DIFICULDADE"
-                    if inscricao.alertas_dificuldade > 0
+                    if inscricao.alertas_dificuldade > 0 or any(
+                        doc.status_processamento in STATUS_COM_ERRO for doc in documentos_vigentes(db, inscricao.id)
+                    )
                     else StatusJornada.PRONTO_AUDITORIA.value
                 ),
                 "alertas_dificuldade": inscricao.alertas_dificuldade,
@@ -129,6 +132,57 @@ def listar_estagnadas(
         "pagina": pagina,
         "por_pagina": por_pagina,
         "total": total,
+    }
+
+
+@router.get("/dashboard/inscricoes/{inscricao_id}/resumo")
+def resumo_inscricao(
+    inscricao_id: int,
+    db: Session = Depends(get_db),
+    _usuario: Usuarios = Depends(exigir_perfil("ANALISTA", "ADMIN")),
+):
+    """Resumo de consulta dos documentos atuais de cada pessoa, sem binários."""
+    inscricao = db.get(Inscricoes, inscricao_id)
+    if inscricao is None:
+        raise HTTPException(status_code=404, detail="Inscrição não encontrada.")
+    candidato = db.get(Usuarios, inscricao.candidato_id)
+    membros = db.query(MembrosFamilia).filter_by(inscricao_id=inscricao_id).order_by(MembrosFamilia.id).all()
+    solicitados = db.query(DocumentosSolicitados).filter_by(processo_id=inscricao.processo_id).order_by(DocumentosSolicitados.id).all()
+    vigentes = documentos_vigentes(db, inscricao_id)
+    por_pessoa = {(d.membro_id, d.solicitado_id): d for d in vigentes}
+    # Carregar somente as análises dos envios atuais, sem consultar DocumentoBinario.
+    analises = {}
+    if vigentes:
+        for analise in db.query(AnalisesOcr).filter(AnalisesOcr.documento_id.in_([d.id for d in vigentes])).order_by(
+            AnalisesOcr.criado_em.desc(), AnalisesOcr.id.desc()
+        ):
+            analises.setdefault(analise.documento_id, analise)
+    pessoas = []
+    for membro_id, nome, tipo in [(None, candidato.nome_completo, "Titular")] + [
+        (m.id, m.nome_completo, "Familiar") for m in membros
+    ]:
+        documentos = []
+        for solicitado in solicitados:
+            documento = por_pessoa.get((membro_id, solicitado.id))
+            analise = analises.get(documento.id) if documento else None
+            documentos.append({
+                "id": documento.id if documento else None,
+                "solicitado_id": solicitado.id,
+                "categoria": solicitado.nome_documento,
+                "obrigatorio": bool(solicitado.obrigatorio),
+                "status": documento.status_processamento if documento else "PENDENTE",
+                "status_auditoria": analise.status_auditoria if analise else None,
+                "motivo": ((analise.parecer if analise else None) or documento.mensagem_erro) if documento else None,
+            })
+        pessoas.append({"membro_id": membro_id, "nome": nome, "tipo": tipo, "documentos": documentos})
+    return {
+        "inscricao_id": inscricao.id,
+        "candidato": candidato.nome_completo,
+        "email": candidato.email,
+        "status_funil": _valor_status(inscricao.status_funil),
+        "com_dificuldade": inscricao.alertas_dificuldade > 0 or any(d.status_processamento in STATUS_COM_ERRO for d in vigentes),
+        "alertas_dificuldade": inscricao.alertas_dificuldade,
+        "pessoas": pessoas,
     }
 
 
